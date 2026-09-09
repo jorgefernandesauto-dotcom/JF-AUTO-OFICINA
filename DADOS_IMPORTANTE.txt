@@ -1,5 +1,3 @@
-PERSONALIZAÇÃO JF AUTO: Nome da oficina: JF Auto Mecânica. Logótipo incluído em static/img/jf-auto-logo.png.
-
 OS SEUS DADOS FICAM GUARDADOS
 
 A aplicação usa SQLite e grava as alterações na base de dados oficina.db.
