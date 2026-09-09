@@ -57,18 +57,7 @@ def totals(items,discount=0,vat=VAT_DEFAULT):
 @app.template_filter('eur')
 def eur(v): return f'{(v or 0):,.2f} €'.replace(',','X').replace('.',',').replace('X','.')
 @app.context_processor
-def globals():
-    # Keep global template variables safe: a database problem must not turn
-    # even the login/error page into a completely blank response.
-    settings = None
-    current_user = None
-    try:
-        settings = Setting.query.first()
-        if session.get('user_id'):
-            current_user = db.session.get(User, session.get('user_id'))
-    except Exception:
-        db.session.rollback()
-    return {'now':datetime.now(),'settings':settings,'item_net':item_net,'totals':totals,'current_user':current_user}
+def globals(): return {'now':datetime.now(),'settings':Setting.query.first(),'item_net':item_net,'totals':totals,'current_user':User.query.get(session.get('user_id')) if session.get('user_id') else None}
 
 def login_required(fn):
     @wraps(fn)
@@ -78,40 +67,19 @@ def login_required(fn):
     return wrapper
 @app.route('/health')
 def health():
-    try:
-        db.session.execute(text('SELECT 1'))
-        return 'JF Auto OK - database OK', 200
-    except Exception as e:
-        return 'JF Auto running - database error: ' + str(e), 500
+    return 'OK', 200
 
 @app.before_request
 def auth_gate():
-    if request.endpoint in {'login','static'}: return
+    if request.endpoint in {'login','static','health'}: return
     if not session.get('user_id'): return redirect(url_for('login',next=request.path))
 
 @app.errorhandler(Exception)
 def handle_unexpected_error(error):
     try:
-        with open(os.path.join(BASE_DIR,'erro.log'),'a',encoding='utf-8') as f:
-            f.write('\n\n'+'='*80+'\n'+datetime.now().isoformat()+'\n'+request.method+' '+request.path+'\n'+traceback.format_exc())
-    except Exception:
-        pass
-    try:
-        db.session.rollback()
-    except Exception:
-        pass
-    # Return a response even if the database/template system itself is broken.
-    return '''<!doctype html><html lang="pt"><head><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>JF Auto Mecânica</title>
-    <style>body{font-family:Arial,sans-serif;background:#f4f4f6;padding:40px}
-    .box{max-width:700px;margin:auto;background:#fff;padding:30px;border-radius:14px;
-    box-shadow:0 2px 12px #0001}h1{margin-top:0}code{white-space:pre-wrap}</style></head>
-    <body><div class="box"><h1>JF Auto Mecânica</h1>
-    <p>Ocorreu um erro ao abrir esta página.</p>
-    <p>O erro foi registado no servidor. Tenta atualizar a página.</p>
-    <code>''' + str(error).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;') + '''</code>
-    </div></body></html>''', 500
+        with open(os.path.join(BASE_DIR,'erro.log'),'a',encoding='utf-8') as f: f.write('\n\n'+'='*80+'\n'+datetime.now().isoformat()+'\n'+request.method+' '+request.path+'\n'+traceback.format_exc())
+    except Exception: pass
+    db.session.rollback(); return render_template('error.html',error=str(error)),500
 
 @app.route('/login',methods=['GET','POST'])
 def login():
@@ -123,10 +91,6 @@ def login():
     return render_template('login.html')
 @app.route('/logout')
 def logout(): session.clear(); return redirect(url_for('login'))
-
-@app.route('/health')
-def health():
-    return 'JF Auto Mecânica OK', 200
 
 @app.route('/')
 @login_required
@@ -360,17 +324,33 @@ def change_password():
 # Migration helper: cria tabelas novas e acrescenta colunas em instalações antigas.
 def migrate_schema():
     db.create_all()
-    insp=inspect(db.engine)
+    inspector = inspect(db.engine)
+    existing_tables = set(inspector.get_table_names())
     for table in db.metadata.sorted_tables:
-        if table.name not in insp.get_table_names(): continue
-        cols={c['name'] for c in insp.get_columns(table.name)}
+        if table.name not in existing_tables:
+            continue
+        existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
         for col in table.columns:
-            if col.name in cols or col.primary_key: continue
-            typ=col.type.compile(db.engine.dialect)
-            default='0' if any(x in typ.upper() for x in ('INT','REAL','NUMERIC','FLOAT','DECIMAL','BOOL')) else "''"
-            try:
-                with db.engine.begin() as conn: conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {typ} DEFAULT {default}'))
-            except Exception: pass
+            if col.name in existing_cols or col.primary_key:
+                continue
+            typ = col.type.compile(db.engine.dialect)
+            upper = typ.upper()
+            if isinstance(col.type, db.Boolean):
+                default = "FALSE"
+            elif any(x in upper for x in ("INT", "REAL", "NUMERIC", "FLOAT", "DECIMAL", "DOUBLE")):
+                default = "0"
+            elif "CHAR" in upper or "TEXT" in upper:
+                default = "''"
+            else:
+                default = None
+            default_sql = f" DEFAULT {default}" if default is not None else ""
+            sql = (
+                f'ALTER TABLE "{table.name}" '
+                f'ADD COLUMN IF NOT EXISTS "{col.name}" {typ}{default_sql}'
+            )
+            with db.engine.begin() as conn:
+                conn.execute(text(sql))
+            existing_cols.add(col.name)
 
 def backup_database():
     try:
