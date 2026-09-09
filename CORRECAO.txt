@@ -1,0 +1,11 @@
+PERSONALIZAÇÃO JF AUTO: Nome da oficina: JF Auto Mecânica. Logótipo incluído em static/img/jf-auto-logo.png.
+
+CORREÇÃO - PEÇAS/STOCK E MÃO DE OBRA
+
+O erro "Internal Server Error" acontecia quando a aplicação tinha uma base de
+dados criada por uma versão anterior, sem as tabelas/colunas novas.
+
+Esta versão faz uma migração automática da base SQLite no arranque.
+Os dados existentes são preservados.
+
+Não é necessário apagar oficina.db.

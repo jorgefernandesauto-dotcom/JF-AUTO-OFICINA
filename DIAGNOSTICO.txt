@@ -1,0 +1,4 @@
+Esta versão regista automaticamente qualquer erro em erro.log.
+Se ainda aparecer "Internal Server Error", feche a aplicação, volte a iniciar,
+reproduza o erro em Peças/Stock ou Mão de obra e envie o ficheiro erro.log.
+Também existe servidor.log para problemas de arranque.

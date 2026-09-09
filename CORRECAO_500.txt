@@ -1,0 +1,12 @@
+ERRO 500 CORRIGIDO
+
+A causa principal encontrada foi sintaxe inválida em alguns templates Jinja:
+{{ valor:g }}. Isso fazia o Flask procurar um filtro "g" inexistente.
+
+Foram corrigidas as páginas:
+- Peças / Stock
+- Mão de obra / Serviços
+- Detalhes/impressão de reparações e orçamentos
+
+Também foi reforçada a criação/migração da base SQLite.
+Os dados existentes não devem ser apagados.

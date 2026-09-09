@@ -1,0 +1,13 @@
+PERSONALIZAÇÃO JF AUTO: Nome da oficina: JF Auto Mecânica. Logótipo incluído em static/img/jf-auto-logo.png.
+
+OS SEUS DADOS FICAM GUARDADOS
+
+A aplicação usa SQLite e grava as alterações na base de dados oficina.db.
+Pode fechar o navegador à vontade; os dados permanecem guardados.
+
+A pasta backups contém cópias automáticas da base de dados criadas quando a aplicação arranca.
+
+IMPORTANTE:
+- Não apague oficina.db.
+- Não apague a pasta backups.
+- Para mudar o computador, copie a pasta completa do programa.
