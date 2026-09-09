@@ -44,10 +44,16 @@ class Quote(db.Model):
 class QuoteItem(db.Model):
     id=db.Column(db.Integer,primary_key=True); quote_id=db.Column(db.Integer,db.ForeignKey('quote.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
 class Invoice(db.Model):
-    id=db.Column(db.String(36),primary_key=True,default=lambda:str(uuid.uuid4())); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(30),default='Emitida'); created_at=db.Column(db.DateTime,default=datetime.utcnow); client_name=db.Column(db.String(150)); nif=db.Column(db.String(30)); phone=db.Column(db.String(40)); address=db.Column(db.String(250)); vehicle_info=db.Column(db.String(160)); notes=db.Column(db.Text); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
+    id=db.Column(db.String(36),primary_key=True,default=lambda:str(uuid.uuid4())); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(30),default='Emitida'); payment_status=db.Column(db.String(30),default='Por pagar'); due_date=db.Column(db.Date); created_at=db.Column(db.DateTime,default=datetime.utcnow); client_name=db.Column(db.String(150)); nif=db.Column(db.String(30)); phone=db.Column(db.String(40)); address=db.Column(db.String(250)); vehicle_info=db.Column(db.String(160)); notes=db.Column(db.Text); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
     items=db.relationship('InvoiceItem',backref='invoice',cascade='all, delete-orphan')
 class InvoiceItem(db.Model):
     id=db.Column(db.Integer,primary_key=True); invoice_id=db.Column(db.String(36),db.ForeignKey('invoice.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
+class Receipt(db.Model):
+    id=db.Column(db.String(36),primary_key=True,default=lambda:str(uuid.uuid4())); number=db.Column(db.String(30),unique=True,nullable=False); created_at=db.Column(db.DateTime,default=datetime.utcnow); invoice_id=db.Column(db.String(36),db.ForeignKey('invoice.id')); client_name=db.Column(db.String(150)); amount=db.Column(db.Float,default=0); payment_method=db.Column(db.String(50),default='Transferência'); notes=db.Column(db.Text)
+    invoice=db.relationship('Invoice',backref=db.backref('receipts',cascade='all, delete-orphan'))
+class CreditNote(db.Model):
+    id=db.Column(db.String(36),primary_key=True,default=lambda:str(uuid.uuid4())); number=db.Column(db.String(30),unique=True,nullable=False); created_at=db.Column(db.DateTime,default=datetime.utcnow); invoice_id=db.Column(db.String(36),db.ForeignKey('invoice.id')); client_name=db.Column(db.String(150)); amount=db.Column(db.Float,default=0); reason=db.Column(db.String(250)); notes=db.Column(db.Text)
+    invoice=db.relationship('Invoice',backref=db.backref('credit_notes',cascade='all, delete-orphan'))
 class Setting(db.Model):
     id=db.Column(db.Integer,primary_key=True); company_name=db.Column(db.String(150),default='JF Auto Mecânica'); nif=db.Column(db.String(30),default=''); phone=db.Column(db.String(40),default=''); email=db.Column(db.String(120),default=''); address=db.Column(db.String(250),default=''); vat=db.Column(db.Float,default=VAT_DEFAULT)
 
@@ -57,7 +63,7 @@ def totals(items,discount=0,vat=VAT_DEFAULT):
 @app.template_filter('eur')
 def eur(v): return f'{(v or 0):,.2f} €'.replace(',','X').replace('.',',').replace('X','.')
 @app.context_processor
-def globals(): return {'now':datetime.now(),'settings':Setting.query.first(),'item_net':item_net,'totals':totals,'current_user':User.query.get(session.get('user_id')) if session.get('user_id') else None}
+def globals(): return {'now':datetime.now(),'settings':Setting.query.first(),'item_net':item_net,'totals':totals,'invoice_total':invoice_total,'invoice_received':invoice_received,'invoice_credits':invoice_credits,'invoice_balance':invoice_balance,'current_user':User.query.get(session.get('user_id')) if session.get('user_id') else None}
 
 def login_required(fn):
     @wraps(fn)
@@ -180,7 +186,10 @@ def order_item_delete(id,item_id):
 def order_print(id): return render_template('order_print.html',o=WorkOrder.query.get_or_404(id),totals=totals(WorkOrder.query.get_or_404(id).items,WorkOrder.query.get_or_404(id).discount,WorkOrder.query.get_or_404(id).vat))
 
 @app.route('/quotes')
-def quotes(): return render_template('quotes.html',quotes=Quote.query.order_by(Quote.id.desc()).all())
+def quotes():
+    q=request.args.get('q','').strip(); query=Quote.query.join(Vehicle).join(Client)
+    if q: query=query.filter(or_(Quote.number.ilike(f'%{q}%'),Vehicle.plate.ilike(f'%{q}%'),Client.name.ilike(f'%{q}%')))
+    return render_template('quotes.html',quotes=query.order_by(Quote.id.desc()).all(),q=q)
 @app.route('/quotes/new',methods=['GET','POST'])
 def new_quote():
     vehicles=Vehicle.query.order_by(Vehicle.plate).all()
@@ -284,27 +293,91 @@ def edit_appointment(id):
         a.start_at=datetime.fromisoformat(request.form['start_at']); a.end_at=datetime.fromisoformat(request.form['end_at']) if request.form.get('end_at') else None; a.client_name=request.form['client_name']; a.plate=request.form.get('plate'); a.service=request.form.get('service'); a.mechanic=request.form.get('mechanic'); a.status=request.form.get('status'); db.session.commit(); flash('Marcação atualizada.'); return redirect(url_for('agenda'))
     return render_template('appointment_form.html',a=a,edit=True)
 
+def invoice_total(inv): return totals(inv.items,inv.discount,inv.vat)[3]
+def invoice_received(inv): return sum((r.amount or 0) for r in inv.receipts)
+def invoice_credits(inv): return sum((c.amount or 0) for c in inv.credit_notes)
+def invoice_balance(inv): return max(0, invoice_total(inv)-invoice_received(inv)-invoice_credits(inv))
+def refresh_invoice_status(inv):
+    total=invoice_total(inv); received=invoice_received(inv); balance=invoice_balance(inv)
+    if balance <= 0.009: inv.payment_status='Pago'
+    elif received > 0: inv.payment_status='Parcial'
+    else: inv.payment_status='Por pagar'
+
 @app.route('/invoices')
-def invoices(): return render_template('invoices.html',invoices=Invoice.query.order_by(Invoice.created_at.desc()).all())
+def invoices():
+    invs=Invoice.query.order_by(Invoice.created_at.desc()).all()
+    for i in invs: refresh_invoice_status(i)
+    db.session.commit()
+    return render_template('invoices.html',invoices=invs)
 @app.route('/invoices/new',methods=['GET','POST'])
 def new_invoice():
     if request.method=='POST':
-        inv=Invoice(number=next_number('FT',Invoice),client_name=request.form.get('client_name'),nif=request.form.get('nif'),phone=request.form.get('phone'),address=request.form.get('address'),vehicle_info=request.form.get('vehicle_info'),notes=request.form.get('notes'),vat=float(request.form.get('vat') or 23),discount=float(request.form.get('discount') or 0)); db.session.add(inv); db.session.flush(); add_posted_items(inv,'item',InvoiceItem); db.session.commit(); flash(f'Documento {inv.number} criado.'); return redirect(url_for('invoice_detail',id=inv.id))
+        inv=Invoice(number=next_number('FT',Invoice),client_name=request.form.get('client_name'),nif=request.form.get('nif'),phone=request.form.get('phone'),address=request.form.get('address'),vehicle_info=request.form.get('vehicle_info'),notes=request.form.get('notes'),vat=float(request.form.get('vat') or 23),discount=float(request.form.get('discount') or 0),due_date=date.fromisoformat(request.form['due_date']) if request.form.get('due_date') else None); db.session.add(inv); db.session.flush(); add_posted_items(inv,'item',InvoiceItem); db.session.commit(); flash(f'Documento {inv.number} criado.'); return redirect(url_for('invoice_detail',id=inv.id))
     return render_template('invoice_form.html')
 @app.route('/invoices/<id>')
 def invoice_detail(id):
-    inv=Invoice.query.get_or_404(id); return render_template('invoice_detail.html',inv=inv,totals=totals(inv.items,inv.discount,inv.vat))
+    inv=Invoice.query.get_or_404(id); refresh_invoice_status(inv); db.session.commit(); return render_template('invoice_detail.html',inv=inv,totals=totals(inv.items,inv.discount,inv.vat),received=invoice_received(inv),credits=invoice_credits(inv),balance=invoice_balance(inv))
 @app.route('/invoices/<id>/edit',methods=['GET','POST'])
 def invoice_edit(id):
     inv=Invoice.query.get_or_404(id)
     if request.method=='POST':
-        inv.client_name=request.form.get('client_name'); inv.nif=request.form.get('nif'); inv.phone=request.form.get('phone'); inv.address=request.form.get('address'); inv.vehicle_info=request.form.get('vehicle_info'); inv.notes=request.form.get('notes'); inv.vat=float(request.form.get('vat') or 23); inv.discount=float(request.form.get('discount') or 0)
+        inv.client_name=request.form.get('client_name'); inv.nif=request.form.get('nif'); inv.phone=request.form.get('phone'); inv.address=request.form.get('address'); inv.vehicle_info=request.form.get('vehicle_info'); inv.notes=request.form.get('notes'); inv.vat=float(request.form.get('vat') or 23); inv.discount=float(request.form.get('discount') or 0); inv.due_date=date.fromisoformat(request.form['due_date']) if request.form.get('due_date') else None
         for i in list(inv.items): db.session.delete(i)
         db.session.flush(); add_posted_items(inv,'item',InvoiceItem); db.session.commit(); flash('Documento atualizado.'); return redirect(url_for('invoice_detail',id=id))
     return render_template('invoice_form.html',inv=inv,edit=True)
+@app.route('/receipts/new',methods=['GET','POST'])
+def new_receipt():
+    invs=Invoice.query.order_by(Invoice.created_at.desc()).all()
+    if request.method=='POST':
+        inv=Invoice.query.get_or_404(request.form.get('invoice_id'))
+        amount=float(request.form.get('amount') or 0)
+        if amount <= 0 or amount > invoice_balance(inv)+0.01: flash('Valor do recibo inválido.','danger'); return render_template('receipt_form.html',invoices=invs)
+        r=Receipt(number=next_number('RC',Receipt),invoice_id=inv.id,client_name=inv.client_name,amount=amount,payment_method=request.form.get('payment_method') or 'Transferência',notes=request.form.get('notes')); db.session.add(r); db.session.flush(); refresh_invoice_status(inv); db.session.commit(); flash(f'Recibo {r.number} criado.'); return redirect(url_for('receipt_detail',id=r.id))
+    return render_template('receipt_form.html',invoices=invs)
+@app.route('/receipts/<id>')
+def receipt_detail(id):
+    r=Receipt.query.get_or_404(id); return render_template('receipt_detail.html',receipt=r)
+@app.route('/receipts/<id>/print')
+def receipt_print(id):
+    r=Receipt.query.get_or_404(id); return render_template('receipt_print.html',receipt=r)
+@app.route('/credit-notes/new',methods=['GET','POST'])
+def new_credit_note():
+    invs=Invoice.query.order_by(Invoice.created_at.desc()).all()
+    if request.method=='POST':
+        inv=Invoice.query.get_or_404(request.form.get('invoice_id')); amount=float(request.form.get('amount') or 0); available=max(0,invoice_total(inv)-invoice_credits(inv))
+        if amount <= 0 or amount > available+0.01: flash('Valor da nota de crédito inválido.','danger'); return render_template('credit_note_form.html',invoices=invs)
+        c=CreditNote(number=next_number('NC',CreditNote),invoice_id=inv.id,client_name=inv.client_name,amount=amount,reason=request.form.get('reason'),notes=request.form.get('notes')); db.session.add(c); db.session.flush(); refresh_invoice_status(inv); db.session.commit(); flash(f'Nota de crédito {c.number} criada.'); return redirect(url_for('credit_note_detail',id=c.id))
+    return render_template('credit_note_form.html',invoices=invs)
+@app.route('/credit-notes/<id>')
+def credit_note_detail(id):
+    c=CreditNote.query.get_or_404(id); return render_template('credit_note_detail.html',credit=c)
+@app.route('/credit-notes/<id>/print')
+def credit_note_print(id):
+    c=CreditNote.query.get_or_404(id); return render_template('credit_note_print.html',credit=c)
+
+@app.route('/receipts')
+def receipts(): return render_template('receipts.html',receipts=Receipt.query.order_by(Receipt.created_at.desc()).all())
+@app.route('/credit-notes')
+def credit_notes(): return render_template('credit_notes.html',credits=CreditNote.query.order_by(CreditNote.created_at.desc()).all())
+
 @app.route('/invoices/<id>/print')
 def invoice_print(id):
     inv=Invoice.query.get_or_404(id); return render_template('invoice_print.html',inv=inv,totals=totals(inv.items,inv.discount,inv.vat))
+
+@app.route('/reports')
+def reports():
+    today=date.today()
+    month_start=datetime(today.year,today.month,1)
+    month_orders=WorkOrder.query.filter(WorkOrder.entry_at>=month_start,WorkOrder.status=='Entregue').order_by(WorkOrder.entry_at.desc()).all()
+    month_invoices=Invoice.query.filter(Invoice.created_at>=month_start).order_by(Invoice.created_at.desc()).all()
+    month_total=sum(totals(o.items,o.discount,o.vat)[3] for o in month_orders)+sum(totals(i.items,i.discount,i.vat)[3] for i in month_invoices)
+    daily={}
+    for o in month_orders:
+        d=o.entry_at.date(); daily[d]=daily.get(d,0)+totals(o.items,o.discount,o.vat)[3]
+    for i in month_invoices:
+        d=i.created_at.date(); daily[d]=daily.get(d,0)+totals(i.items,i.discount,i.vat)[3]
+    days=sorted(daily.items(),reverse=True)
+    return render_template('reports.html',month_total=month_total,month_orders=month_orders,month_invoices=month_invoices,days=days)
 
 @app.route('/settings',methods=['GET','POST'])
 def settings():
