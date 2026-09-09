@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="JF Auto Mecânica — mecânica geral, revisões, suspensão, travões, correia de distribuição e embraiagem em Subportela.">
+<title>JF Auto Mecânica | Subportela</title>
+<style>
+:root{
+  --blue:#1674d1;
+  --blue2:#0b4e91;
+  --ink:#0b1220;
+  --muted:#687386;
+  --light:#f5f7fa;
+  --white:#fff;
+  --line:#e5e9ef;
+  --shadow:0 18px 50px rgba(8,18,35,.12);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#fff;line-height:1.6}
+a{text-decoration:none;color:inherit}
+.container{width:min(1120px,92%);margin:auto}
+.topbar{background:#07111f;color:#dbe7f5;font-size:.9rem}
+.topbar .container{display:flex;justify-content:space-between;gap:20px;padding:9px 0}
+header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-bottom:1px solid rgba(229,233,239,.8)}
+.nav{height:76px;display:flex;align-items:center;justify-content:space-between;gap:25px}
+.brand{display:flex;align-items:center;gap:12px;font-weight:900;font-size:1.25rem}
+.brand-mark{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--blue),var(--blue2));display:grid;place-items:center;color:white;font-weight:950;font-size:1.1rem;box-shadow:0 8px 20px rgba(22,116,209,.25)}
+nav{display:flex;gap:25px;align-items:center;font-weight:700;font-size:.94rem}
+nav a:hover{color:var(--blue)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;border-radius:12px;padding:13px 19px;font-weight:800;border:1px solid transparent;transition:.2s}
+.btn-primary{background:var(--blue);color:white;box-shadow:0 10px 25px rgba(22,116,209,.24)}
+.btn-primary:hover{transform:translateY(-2px);background:#0f65bb}
+.btn-outline{border-color:#cfd7e2;background:white}
+.hero{position:relative;overflow:hidden;background:radial-gradient(circle at 85% 20%,rgba(22,116,209,.25),transparent 28%),linear-gradient(135deg,#07111f 0%,#0d1d31 58%,#0a315a 100%);color:#fff}
+.hero:after{content:"";position:absolute;inset:auto -10% -180px;height:330px;background:#fff;transform:rotate(-4deg)}
+.hero-grid{min-height:620px;display:grid;grid-template-columns:1.1fr .9fr;align-items:center;gap:60px;position:relative;z-index:2;padding:70px 0 100px}
+.badge{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.15);padding:8px 12px;border-radius:999px;font-size:.85rem;font-weight:800;margin-bottom:20px}
+.dot{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 5px rgba(74,222,128,.12)}
+h1{font-size:clamp(2.8rem,6vw,5.5rem);line-height:.98;letter-spacing:-.055em;max-width:750px}
+.hero p{font-size:1.12rem;color:#c9d6e6;max-width:650px;margin:25px 0 30px}
+.actions{display:flex;flex-wrap:wrap;gap:12px}
+.hero .btn-outline{background:transparent;border-color:rgba(255,255,255,.25);color:#fff}
+.logo-card{background:#fff;border-radius:24px;padding:15px;box-shadow:var(--shadow);transform:rotate(2deg)}
+.logo-card img{width:100%;display:block;border-radius:15px}
+.stats{position:relative;z-index:4;margin-top:-55px}
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);background:#fff;border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);overflow:hidden}
+.stat{padding:25px;text-align:center}
+.stat:not(:last-child){border-right:1px solid var(--line)}
+.stat strong{display:block;font-size:1.35rem}
+.stat span{color:var(--muted);font-size:.9rem}
+section{padding:95px 0}
+.eyebrow{color:var(--blue);font-weight:900;text-transform:uppercase;letter-spacing:.12em;font-size:.78rem;margin-bottom:10px}
+.section-head{max-width:700px;margin-bottom:42px}
+h2{font-size:clamp(2rem,4vw,3.2rem);line-height:1.05;letter-spacing:-.04em}
+.section-head p{color:var(--muted);margin-top:14px}
+.services{background:var(--light)}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:27px;transition:.2s}
+.card:hover{transform:translateY(-5px);box-shadow:var(--shadow)}
+.icon{width:48px;height:48px;border-radius:14px;background:#e9f3ff;color:var(--blue);display:grid;place-items:center;font-size:1.35rem;margin-bottom:20px}
+.card h3{margin-bottom:8px;font-size:1.12rem}
+.card p{color:var(--muted);font-size:.94rem}
+.about-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:70px;align-items:center}
+.checks{display:grid;gap:15px;margin-top:25px}
+.check{display:flex;gap:12px;align-items:flex-start}
+.check b{color:var(--blue);font-size:1.1rem}
+.contact{background:#07111f;color:#fff}
+.contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:30px}
+.contact-card{background:#0e1b2b;border:1px solid #20334b;border-radius:20px;padding:30px}
+.contact-item{display:flex;gap:14px;padding:17px 0;border-bottom:1px solid #20334b}
+.contact-item:last-child{border-bottom:0}
+.contact-item span:first-child{font-size:1.2rem}
+.contact-item small{display:block;color:#91a4ba}
+.contact-item a{font-weight:800}
+footer{background:#050c15;color:#8495aa;padding:24px 0;font-size:.88rem}
+footer .container{display:flex;justify-content:space-between;gap:15px}
+@media(max-width:820px){
+  nav{display:none}
+  .hero-grid,.about-grid,.contact-grid{grid-template-columns:1fr}
+  .hero-grid{padding-top:55px}
+  .logo-card{max-width:600px;margin:auto}
+  .cards{grid-template-columns:1fr 1fr}
+}
+@media(max-width:560px){
+  .topbar .container{flex-direction:column;gap:2px}
+  .stats-grid,.cards{grid-template-columns:1fr}
+  .stat:not(:last-child){border-right:0;border-bottom:1px solid var(--line)}
+  section{padding:70px 0}
+  h1{font-size:3.1rem}
+  footer .container{flex-direction:column}
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="container"><span>🔧 JF Auto Mecânica</span><span>🕗 Aberto todos os dias · 08:00–20:00</span></div>
+</div>
+
+<header>
+  <div class="container nav">
+    <a class="brand" href="#inicio"><span class="brand-mark">JF</span><span>JF Auto</span></a>
+    <nav>
+      <a href="#servicos">Serviços</a>
+      <a href="#sobre">Sobre nós</a>
+      <a href="#contactos">Contactos</a>
+    </nav>
+    <a class="btn btn-primary" href="tel:+351929479736">📞 Ligar agora</a>
+  </div>
+</header>
+
+<main>
+<section class="hero" id="inicio">
+  <div class="container hero-grid">
+    <div>
+      <div class="badge"><span class="dot"></span> Serviços automóveis em Subportela</div>
+      <h1>O seu carro merece um serviço <span style="color:#55a7ff">de confiança.</span></h1>
+      <p>Mecânica geral, revisões, suspensão, travões, correia de distribuição e embraiagem. Tratamos do seu carro com atenção e profissionalismo.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="tel:+351929479736">📞 929 479 736</a>
+        <a class="btn btn-outline" href="#servicos">Ver serviços ↓</a>
+      </div>
+    </div>
+    <div class="logo-card"><img src="jf-auto-logo.jpg" alt="JF Auto Mecânica e serviços"></div>
+  </div>
+</section>
+
+<div class="container stats">
+  <div class="stats-grid">
+    <div class="stat"><strong>08:00–20:00</strong><span>Horário de atendimento</span></div>
+    <div class="stat"><strong>Subportela</strong><span>Localização da oficina</span></div>
+    <div class="stat"><strong>929 479 736</strong><span>Contacto direto</span></div>
+  </div>
+</div>
+
+<section class="services" id="servicos">
+  <div class="container">
+    <div class="section-head">
+      <div class="eyebrow">O que fazemos</div>
+      <h2>Serviços para manter o seu carro em forma.</h2>
+      <p>Desde a manutenção do dia a dia até intervenções mecânicas mais exigentes.</p>
+    </div>
+    <div class="cards">
+      <article class="card"><div class="icon">🔧</div><h3>Mecânica geral</h3><p>Manutenção e reparação dos principais componentes mecânicos do veículo.</p></article>
+      <article class="card"><div class="icon">✓</div><h3>Revisão automóvel</h3><p>Revisões e manutenção preventiva para ajudar a evitar problemas inesperados.</p></article>
+      <article class="card"><div class="icon">🚗</div><h3>Suspensão</h3><p>Verificação e reparação da suspensão para maior segurança e conforto.</p></article>
+      <article class="card"><div class="icon">◉</div><h3>Travões</h3><p>Pastilhas, discos e sistema de travagem — porque a segurança vem primeiro.</p></article>
+      <article class="card"><div class="icon">⚙</div><h3>Correia de distribuição</h3><p>Substituição da correia de distribuição e componentes associados.</p></article>
+      <article class="card"><div class="icon">⚙</div><h3>Embraiagem</h3><p>Diagnóstico e reparação da embraiagem para uma condução suave e segura.</p></article>
+    </div>
+  </div>
+</section>
+
+<section id="sobre">
+  <div class="container about-grid">
+    <div class="logo-card"><img src="jf-auto-logo.jpg" alt="JF Auto Mecânica"></div>
+    <div>
+      <div class="eyebrow">JF Auto Mecânica</div>
+      <h2>Serviço direto, profissional e sem complicações.</h2>
+      <p style="color:var(--muted);margin-top:18px">Na JF Auto ajudamos a manter o seu veículo seguro e em boas condições, com serviços de mecânica geral e manutenção automóvel.</p>
+      <div class="checks">
+        <div class="check"><b>✓</b><span><strong>Mecânica geral e revisão</strong><br><span style="color:var(--muted)">Cuidados essenciais para o seu veículo.</span></span></div>
+        <div class="check"><b>✓</b><span><strong>Travões e suspensão</strong><br><span style="color:var(--muted)">Segurança e estabilidade na estrada.</span></span></div>
+        <div class="check"><b>✓</b><span><strong>Distribuição e embraiagem</strong><br><span style="color:var(--muted)">Intervenções mecânicas especializadas.</span></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="contact" id="contactos">
+  <div class="container">
+    <div class="section-head">
+      <div class="eyebrow" style="color:#55a7ff">Contacte-nos</div>
+      <h2>Precisa de tratar do seu carro?</h2>
+      <p style="color:#a9b8ca">Ligue-nos para saber mais, marcar uma visita ou pedir informações.</p>
+    </div>
+    <div class="contact-grid">
+      <div class="contact-card">
+        <div class="contact-item"><span>📞</span><div><small>Telefone / WhatsApp</small><a href="tel:+351929479736">929 479 736</a></div></div>
+        <div class="contact-item"><span>📍</span><div><small>Localização</small><strong>Subportela</strong></div></div>
+        <div class="contact-item"><span>🕗</span><div><small>Horário</small><strong>08:00–20:00</strong></div></div>
+      </div>
+      <div class="contact-card" style="display:flex;flex-direction:column;justify-content:center">
+        <h3 style="font-size:1.6rem;margin-bottom:10px">Fale diretamente connosco</h3>
+        <p style="color:#a9b8ca;margin-bottom:20px">Tem uma dúvida ou precisa de marcar um serviço? Entre em contacto.</p>
+        <a class="btn btn-primary" href="https://wa.me/351929479736" target="_blank" rel="noopener">💬 WhatsApp</a>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer><div class="container"><span>© 2026 JF Auto Mecânica</span><span>Subportela · Serviços Automóveis</span></div></footer>
+</body>
+</html>
