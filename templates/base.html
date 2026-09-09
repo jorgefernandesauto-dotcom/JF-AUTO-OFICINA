@@ -19,6 +19,7 @@ body{background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-sy
 <div class="group">Oficina</div>
 <a href="/orders"><i class="bi bi-kanban"></i><span>Ordens de reparação</span></a>
 <a href="/quotes"><i class="bi bi-file-earmark-text"></i><span>Orçamentos</span></a>
+<a href="/invoices"><i class="bi bi-receipt"></i><span>Faturas</span></a>
 <a href="/agenda"><i class="bi bi-calendar3"></i><span>Calendário</span></a>
 <div class="group">Gestão</div>
 <a href="/clients"><i class="bi bi-people"></i><span>Clientes</span></a>
@@ -27,8 +28,9 @@ body{background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-sy
 <a href="/services"><i class="bi bi-tools"></i><span>Mão de obra</span></a>
 <div class="group">Sistema</div>
 <a href="/settings"><i class="bi bi-gear"></i><span>Definições</span></a>
+<a href="/logout"><i class="bi bi-box-arrow-right"></i><span>Sair</span></a>
 </aside>
-<div class="main"><div class="top"><div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style="width:30px;height:30px">OF</div><span class="ms-2 small">{{settings.company_name if settings else 'JF Auto Mecânica'}}</span></div>
+<div class="main"><div class="top"><span class="small me-3">{{ session.get("username", "") }}</span><div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style="width:30px;height:30px">OF</div><span class="ms-2 small">{{settings.company_name if settings else 'JF Auto Mecânica'}}</span></div>
 <div class="content">{% with messages=get_flashed_messages() %}{% for m in messages %}<div class="alert alert-success py-2">{{m}}</div>{% endfor %}{% endwith %}{% block content %}{% endblock %}</div></div>
 <script>
 window.catalogCache = [];

@@ -16,3 +16,12 @@ Não é necessário manter o computador ligado.
 
 ## Atenção
 A aplicação ainda não tem sistema de login de utilizadores. Antes de uso comercial, deve ser adicionado autenticação e controlo de acesso.
+
+
+## Melhorias desta versão
+- Edição de orçamentos, ordens de reparação e peças/stock.
+- Calendário com hora de início e fim.
+- Faturas simples diretas, com peças/mão de obra e atualização de stock.
+- Impressão com logótipo JF Auto Mecânica.
+
+Nota: a função de fatura simples é um documento de faturação interno e não deve ser apresentada como software certificado pela AT sem a respetiva certificação/integração fiscal.

@@ -1,8 +1,9 @@
 
-from flask import Flask, render_template, request, redirect, url_for, flash, abort, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, abort, jsonify, session
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date
 from sqlalchemy import func, or_
+from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import shutil
 import traceback
@@ -110,6 +111,7 @@ class WorkItem(db.Model):
 class Appointment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     start_at = db.Column(db.DateTime, nullable=False)
+    end_at = db.Column(db.DateTime)
     client_name = db.Column(db.String(150), nullable=False)
     plate = db.Column(db.String(20))
     service = db.Column(db.String(200))
@@ -127,6 +129,7 @@ class Quote(db.Model):
     vat = db.Column(db.Float, default=VAT_DEFAULT)
     vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"), nullable=False)
     vehicle = db.relationship("Vehicle")
+    stock_applied = db.Column(db.Boolean, default=False)
     items = db.relationship("QuoteItem", backref="quote", cascade="all, delete-orphan")
 
 class QuoteItem(db.Model):
@@ -139,6 +142,39 @@ class QuoteItem(db.Model):
     unit_price = db.Column(db.Float, default=0)
     discount = db.Column(db.Float, default=0)
     vat = db.Column(db.Float, default=VAT_DEFAULT)
+
+
+class Invoice(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    number = db.Column(db.String(30), unique=True, nullable=False)
+    status = db.Column(db.String(30), default="Emitida")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    notes = db.Column(db.Text)
+    discount = db.Column(db.Float, default=0)
+    vat = db.Column(db.Float, default=VAT_DEFAULT)
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"))
+    client = db.relationship("Client")
+    vehicle = db.relationship("Vehicle")
+    stock_applied = db.Column(db.Boolean, default=False)
+    items = db.relationship("InvoiceItem", backref="invoice", cascade="all, delete-orphan")
+
+class InvoiceItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=False)
+    item_type = db.Column(db.String(20), default="Peça")
+    description = db.Column(db.String(250), nullable=False)
+    reference = db.Column(db.String(80))
+    quantity = db.Column(db.Float, default=1)
+    unit_price = db.Column(db.Float, default=0)
+    discount = db.Column(db.Float, default=0)
+    vat = db.Column(db.Float, default=VAT_DEFAULT)
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    active = db.Column(db.Boolean, default=True)
 
 class Setting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -181,6 +217,74 @@ def handle_unexpected_error(error):
         pass
     db.session.rollback()
     return render_template("error.html", error=str(error)), 500
+
+
+def apply_stock(items, reverse=False):
+    """Aplica ou desfaz movimentos de stock para itens do tipo Peça."""
+    for i in items:
+        if (i.item_type or "").strip().lower() != "peça":
+            continue
+        if not i.reference:
+            continue
+        p = Part.query.filter_by(code=i.reference).first()
+        if not p:
+            continue
+        qty = float(i.quantity or 0)
+        p.quantity = int(round((p.quantity or 0) + (qty if reverse else -qty)))
+        if p.quantity < 0:
+            raise ValueError(f"Stock insuficiente para {p.description}. Disponível: {p.quantity + int(round(qty))}")
+
+def set_quote_status(q, new_status):
+    old = q.status
+    if old != "Convertido" and new_status == "Convertido":
+        if not q.stock_applied:
+            apply_stock(q.items)
+            q.stock_applied = True
+    elif old == "Convertido" and new_status != "Convertido":
+        if q.stock_applied:
+            apply_stock(q.items, reverse=True)
+            q.stock_applied = False
+    q.status = new_status
+
+@app.before_request
+def require_login():
+    if request.endpoint in {"login", "logout", "health", "static"}:
+        return
+    if not session.get("user_id"):
+        return redirect(url_for("login", next=request.path))
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        user = User.query.filter_by(username=username, active=True).first()
+        if user and check_password_hash(user.password_hash, password):
+            session.clear(); session["user_id"] = user.id; session["username"] = user.username
+            return redirect(request.args.get("next") or request.form.get("next") or url_for("dashboard"))
+        flash("Utilizador ou palavra-passe incorretos.")
+    return render_template("login.html")
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+@app.route("/settings/password", methods=["POST"])
+def change_password():
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+    user = db.session.get(User, session["user_id"])
+    current = request.form.get("current_password", "")
+    new = request.form.get("new_password", "")
+    if not user or not check_password_hash(user.password_hash, current):
+        flash("A palavra-passe atual está incorreta.")
+    elif len(new) < 8:
+        flash("A nova palavra-passe deve ter pelo menos 8 caracteres.")
+    else:
+        user.password_hash = generate_password_hash(new)
+        db.session.commit(); flash("Palavra-passe alterada com sucesso.")
+    return redirect(url_for("settings"))
 
 @app.route("/")
 def dashboard():
@@ -278,12 +382,14 @@ def add_posted_items(parent, prefix):
 @app.route("/orders/<int:id>")
 def order_detail(id):
     o = WorkOrder.query.get_or_404(id)
-    return render_template("order_detail.html", o=o, totals=totals(o.items, o.discount, o.vat))
+    return render_template("order_detail.html", o=o, vehicles=Vehicle.query.order_by(Vehicle.plate).all(), totals=totals(o.items, o.discount, o.vat))
 
 @app.route("/orders/<int:id>/update", methods=["POST"])
 def order_update(id):
     o=WorkOrder.query.get_or_404(id)
     o.status=request.form.get("status",o.status); o.mechanic=request.form.get("mechanic")
+    if request.form.get("vehicle_id"): o.vehicle_id=int(request.form["vehicle_id"])
+    o.km=int(float(request.form.get("km") or o.km or 0)); o.complaint=request.form.get("complaint")
     o.diagnosis=request.form.get("diagnosis"); o.work_done=request.form.get("work_done")
     o.discount=float(request.form.get("discount") or 0); o.vat=float(request.form.get("vat") or VAT_DEFAULT)
     if o.status=="Entregue" and not o.exit_at: o.exit_at=datetime.utcnow()
@@ -296,6 +402,14 @@ def order_item(id):
                reference=request.form.get("reference"), quantity=float(request.form.get("quantity") or 1),
                unit_price=float(request.form.get("unit_price") or 0), vat=float(request.form.get("vat") or o.vat))
     o.items.append(i); db.session.commit(); return redirect(url_for("order_detail",id=id))
+
+@app.route("/orders/<int:id>/item/<int:item_id>/edit", methods=["POST"])
+def order_item_edit(id,item_id):
+    i=WorkItem.query.filter_by(id=item_id,order_id=id).first_or_404()
+    i.item_type=request.form.get("item_type","Peça"); i.description=request.form["description"].strip()
+    i.quantity=float(request.form.get("quantity") or 1); i.unit_price=float(request.form.get("unit_price") or 0)
+    db.session.commit(); flash("Item da ordem alterado.")
+    return redirect(url_for("order_detail",id=id))
 
 @app.route("/orders/<int:id>/item/<int:item_id>/delete", methods=["POST"])
 def order_item_delete(id,item_id):
@@ -338,7 +452,42 @@ def quote_detail(id):
 
 @app.route("/quotes/<int:id>/status", methods=["POST"])
 def quote_status(id):
-    q=Quote.query.get_or_404(id); q.status=request.form["status"]; db.session.commit(); return redirect(url_for("quote_detail",id=id))
+    q=Quote.query.get_or_404(id)
+    try:
+        set_quote_status(q, request.form["status"])
+        db.session.commit()
+        flash("Estado do orçamento atualizado.")
+    except ValueError as e:
+        db.session.rollback()
+        flash(str(e))
+    return redirect(url_for("quote_detail",id=id))
+
+@app.route("/quotes/<int:id>/edit", methods=["GET","POST"])
+def quote_edit(id):
+    q=Quote.query.get_or_404(id)
+    vehicles=Vehicle.query.order_by(Vehicle.plate).all()
+    if request.method=="POST":
+        q.vehicle_id=int(request.form["vehicle_id"])
+        q.valid_until=datetime.fromisoformat(request.form["valid_until"]).date() if request.form.get("valid_until") else None
+        q.notes=request.form.get("notes")
+        q.vat=float(request.form.get("vat") or VAT_DEFAULT)
+        q.discount=float(request.form.get("discount") or 0)
+        # If converted, return old stock before replacing items.
+        if q.stock_applied:
+            apply_stock(q.items, reverse=True)
+            q.stock_applied=False
+        q.items.clear()
+        descs=request.form.getlist("item_description[]"); refs=request.form.getlist("item_reference[]")
+        types=request.form.getlist("item_type[]"); qtys=request.form.getlist("item_quantity[]"); prices=request.form.getlist("item_price[]")
+        for d,r,t,qty,p in zip(descs,refs,types,qtys,prices):
+            if d.strip():
+                q.items.append(QuoteItem(item_type=t or "Peça", description=d.strip(), reference=r,
+                    quantity=float(qty or 1), unit_price=float(p or 0), vat=q.vat))
+        db.session.commit()
+        flash("Orçamento alterado.")
+        return redirect(url_for("quote_detail",id=id))
+    return render_template("quote_form.html", vehicles=vehicles, parts=Part.query.filter_by(active=True).order_by(Part.description).all(),
+                           services=Service.query.filter_by(active=True).order_by(Service.name).all(), q=q, edit_mode=True)
 
 @app.route("/quotes/<int:id>/print")
 def quote_print(id):
@@ -380,6 +529,23 @@ def new_part():
         db.session.add(p); db.session.commit(); flash("Peça criada."); return redirect(url_for("stock"))
     return render_template("part_form.html")
 
+@app.route("/stock/<int:id>/edit", methods=["GET","POST"])
+def edit_part(id):
+    p=Part.query.get_or_404(id)
+    if request.method=="POST":
+        p.code=request.form["code"].strip()
+        p.description=request.form["description"].strip()
+        p.supplier=request.form.get("supplier")
+        p.purchase_price=float(request.form.get("purchase_price") or 0)
+        p.sale_price=float(request.form.get("sale_price") or 0)
+        p.quantity=int(float(request.form.get("quantity") or 0))
+        p.minimum_stock=int(float(request.form.get("minimum_stock") or 0))
+        p.vat=float(request.form.get("vat") or VAT_DEFAULT)
+        p.active=bool(request.form.get("active"))
+        db.session.commit(); flash("Peça alterada.")
+        return redirect(url_for("stock"))
+    return render_template("part_form.html", p=p, edit_mode=True)
+
 @app.route("/services")
 def services():
     return render_template("services.html", services=Service.query.order_by(Service.name).all())
@@ -401,10 +567,52 @@ def agenda():
 def new_appointment():
     if request.method=="POST":
         dt=datetime.fromisoformat(request.form["start_at"])
-        a=Appointment(start_at=dt,client_name=request.form["client_name"],plate=request.form.get("plate"),
+        end=datetime.fromisoformat(request.form["end_at"]) if request.form.get("end_at") else None
+        a=Appointment(start_at=dt,end_at=end,client_name=request.form["client_name"],plate=request.form.get("plate"),
                       service=request.form.get("service"),mechanic=request.form.get("mechanic"),status=request.form.get("status","Marcada"))
         db.session.add(a); db.session.commit(); flash("Marcação criada."); return redirect(url_for("agenda"))
     return render_template("appointment_form.html")
+
+
+@app.route("/invoices")
+def invoices():
+    return render_template("invoices.html", invoices=Invoice.query.order_by(Invoice.id.desc()).all())
+
+@app.route("/invoices/new", methods=["GET","POST"])
+def new_invoice():
+    clients=Client.query.order_by(Client.name).all()
+    vehicles=Vehicle.query.order_by(Vehicle.plate).all()
+    if request.method=="POST":
+        inv=Invoice(number=next_number("FT",Invoice), client_id=int(request.form["client_id"]),
+                    vehicle_id=int(request.form["vehicle_id"]) if request.form.get("vehicle_id") else None,
+                    notes=request.form.get("notes"), vat=float(request.form.get("vat") or VAT_DEFAULT),
+                    discount=float(request.form.get("discount") or 0))
+        db.session.add(inv); db.session.flush()
+        descs=request.form.getlist("item_description[]"); refs=request.form.getlist("item_reference[]")
+        types=request.form.getlist("item_type[]"); qtys=request.form.getlist("item_quantity[]"); prices=request.form.getlist("item_price[]")
+        for d,r,t,qty,p in zip(descs,refs,types,qtys,prices):
+            if d.strip():
+                inv.items.append(InvoiceItem(item_type=t or "Peça",description=d.strip(),reference=r,
+                    quantity=float(qty or 1),unit_price=float(p or 0),vat=inv.vat))
+        try:
+            apply_stock(inv.items); inv.stock_applied=True
+            db.session.commit(); flash(f"Fatura {inv.number} criada.")
+            return redirect(url_for("invoice_detail",id=inv.id))
+        except ValueError as e:
+            db.session.rollback(); flash(str(e))
+    return render_template("invoice_form.html",clients=clients,vehicles=vehicles,
+                           parts=Part.query.filter_by(active=True).order_by(Part.description).all(),
+                           services=Service.query.filter_by(active=True).order_by(Service.name).all())
+
+@app.route("/invoices/<int:id>")
+def invoice_detail(id):
+    inv=Invoice.query.get_or_404(id)
+    return render_template("invoice_detail.html", inv=inv, totals=totals(inv.items,inv.discount,inv.vat))
+
+@app.route("/invoices/<int:id>/print")
+def invoice_print(id):
+    inv=Invoice.query.get_or_404(id)
+    return render_template("invoice_print.html", inv=inv, totals=totals(inv.items,inv.discount,inv.vat))
 
 @app.route("/settings", methods=["GET","POST"])
 def settings():
@@ -450,6 +658,11 @@ with app.app_context():
     migrate_sqlite_schema()
     if not Setting.query.first():
         db.session.add(Setting())
+        db.session.commit()
+    if not User.query.first():
+        default_user = os.getenv("ADMIN_USERNAME", "admin")
+        default_password = os.getenv("ADMIN_PASSWORD", "JFauto2026!")
+        db.session.add(User(username=default_user, password_hash=generate_password_hash(default_password)))
         db.session.commit()
     backup_database()
 
