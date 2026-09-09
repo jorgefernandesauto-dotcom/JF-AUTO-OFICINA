@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="cardx p-5">
+  <div class="page-title mb-2">Ocorreu um erro</div>
+  <p class="muted">O programa registou o erro no ficheiro <strong>erro.log</strong>.</p>
+  <div class="alert alert-danger">{{ error or "Erro interno do servidor." }}</div>
+  <a href="/" class="btn btn-dark">Voltar ao painel</a>
+</div>
+{% endblock %}

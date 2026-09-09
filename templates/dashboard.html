@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4"><div><div class="page-title">Painel</div><div class="muted">Visão geral da oficina</div></div><a class="btn btn-dark" href="/orders/new"><i class="bi bi-plus-lg"></i> Nova reparação</a></div>
+<div class="row g-3 mb-4">
+<div class="col-md-3"><div class="cardx stat"><div class="muted">Clientes</div><div class="num">{{clients}}</div></div></div>
+<div class="col-md-3"><div class="cardx stat"><div class="muted">Viaturas</div><div class="num">{{vehicles}}</div></div></div>
+<div class="col-md-3"><div class="cardx stat"><div class="muted">Reparações em curso</div><div class="num">{{open_orders}}</div></div></div>
+<div class="col-md-3"><div class="cardx stat"><div class="muted">Faturação estimada este mês</div><div class="num">{{revenue|eur}}</div></div></div>
+</div>
+<div class="row g-4"><div class="col-lg-7"><div class="d-flex justify-content-between mb-2"><h5>Próximas marcações</h5><a href="/agenda">Ver todas</a></div><div class="cardx"><table class="table mb-0"><tr><th>Data</th><th>Cliente</th><th>Viatura</th><th>Serviço</th></tr>{% for a in appointments %}<tr><td>{{a.start_at.strftime('%d/%m/%Y %H:%M')}}</td><td>{{a.client_name}}</td><td>{{a.plate or '-'}}</td><td>{{a.service or '-'}}</td></tr>{% else %}<tr><td colspan="4" class="empty">Sem marcações.</td></tr>{% endfor %}</table></div></div>
+<div class="col-lg-5"><h5 class="mb-2">Alertas</h5><div class="cardx p-4"><div class="d-flex justify-content-between mb-3"><span><i class="bi bi-box-seam"></i> Stock baixo</span><strong>{{low_stock}}</strong></div><div class="d-flex justify-content-between"><span><i class="bi bi-file-text"></i> Orçamentos pendentes</span><strong>{{quotes_pending}}</strong></div></div></div></div>{% endblock %}
