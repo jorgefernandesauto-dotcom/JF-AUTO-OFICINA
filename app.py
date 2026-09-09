@@ -44,15 +44,15 @@ class Quote(db.Model):
 class QuoteItem(db.Model):
     id=db.Column(db.Integer,primary_key=True); quote_id=db.Column(db.Integer,db.ForeignKey('quote.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
 class Invoice(db.Model):
-    id=db.Column(db.String(36),primary_key=True,default=lambda:str(uuid.uuid4())); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(30),default='Emitida'); payment_status=db.Column(db.String(30),default='Por pagar'); due_date=db.Column(db.Date); created_at=db.Column(db.DateTime,default=datetime.utcnow); client_name=db.Column(db.String(150)); nif=db.Column(db.String(30)); phone=db.Column(db.String(40)); address=db.Column(db.String(250)); vehicle_info=db.Column(db.String(160)); notes=db.Column(db.Text); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
+    id=db.Column(db.Integer,primary_key=True); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(30),default='Emitida'); payment_status=db.Column(db.String(30),default='Por pagar'); due_date=db.Column(db.Date); created_at=db.Column(db.DateTime,default=datetime.utcnow); client_name=db.Column(db.String(150)); nif=db.Column(db.String(30)); phone=db.Column(db.String(40)); address=db.Column(db.String(250)); vehicle_info=db.Column(db.String(160)); notes=db.Column(db.Text); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
     items=db.relationship('InvoiceItem',backref='invoice',cascade='all, delete-orphan')
 class InvoiceItem(db.Model):
-    id=db.Column(db.Integer,primary_key=True); invoice_id=db.Column(db.String(36),db.ForeignKey('invoice.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
+    id=db.Column(db.Integer,primary_key=True); invoice_id=db.Column(db.Integer,db.ForeignKey('invoice.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
 class Receipt(db.Model):
-    id=db.Column(db.String(36),primary_key=True,default=lambda:str(uuid.uuid4())); number=db.Column(db.String(30),unique=True,nullable=False); created_at=db.Column(db.DateTime,default=datetime.utcnow); invoice_id=db.Column(db.String(36),db.ForeignKey('invoice.id')); client_name=db.Column(db.String(150)); amount=db.Column(db.Float,default=0); payment_method=db.Column(db.String(50),default='Transferência'); notes=db.Column(db.Text)
+    id=db.Column(db.String(36),primary_key=True,default=lambda:str(uuid.uuid4())); number=db.Column(db.String(30),unique=True,nullable=False); created_at=db.Column(db.DateTime,default=datetime.utcnow); invoice_id=db.Column(db.Integer,db.ForeignKey('invoice.id')); client_name=db.Column(db.String(150)); amount=db.Column(db.Float,default=0); payment_method=db.Column(db.String(50),default='Transferência'); notes=db.Column(db.Text)
     invoice=db.relationship('Invoice',backref=db.backref('receipts',cascade='all, delete-orphan'))
 class CreditNote(db.Model):
-    id=db.Column(db.String(36),primary_key=True,default=lambda:str(uuid.uuid4())); number=db.Column(db.String(30),unique=True,nullable=False); created_at=db.Column(db.DateTime,default=datetime.utcnow); invoice_id=db.Column(db.String(36),db.ForeignKey('invoice.id')); client_name=db.Column(db.String(150)); amount=db.Column(db.Float,default=0); reason=db.Column(db.String(250)); notes=db.Column(db.Text)
+    id=db.Column(db.String(36),primary_key=True,default=lambda:str(uuid.uuid4())); number=db.Column(db.String(30),unique=True,nullable=False); created_at=db.Column(db.DateTime,default=datetime.utcnow); invoice_id=db.Column(db.Integer,db.ForeignKey('invoice.id')); client_name=db.Column(db.String(150)); amount=db.Column(db.Float,default=0); reason=db.Column(db.String(250)); notes=db.Column(db.Text)
     invoice=db.relationship('Invoice',backref=db.backref('credit_notes',cascade='all, delete-orphan'))
 class Setting(db.Model):
     id=db.Column(db.Integer,primary_key=True); company_name=db.Column(db.String(150),default='JF Auto Mecânica'); nif=db.Column(db.String(30),default=''); phone=db.Column(db.String(40),default=''); email=db.Column(db.String(120),default=''); address=db.Column(db.String(250),default=''); vat=db.Column(db.Float,default=VAT_DEFAULT)
@@ -98,10 +98,28 @@ def login():
 @app.route('/logout')
 def logout(): session.clear(); return redirect(url_for('login'))
 
+def _dashboard_data():
+    today=date.today()
+    open_orders=WorkOrder.query.filter(WorkOrder.status!='Entregue').count()
+    low_stock=Part.query.filter(Part.quantity<=Part.minimum_stock,Part.active==True).count()
+    month_start=datetime(today.year,today.month,1)
+    month_orders=WorkOrder.query.filter(WorkOrder.entry_at>=month_start).all()
+    revenue=sum(totals(o.items,o.discount,o.vat)[3] for o in month_orders)
+    quotes_pending=Quote.query.filter_by(status='Pendente').count()
+    appointments=Appointment.query.filter(Appointment.start_at>=datetime.now()).order_by(Appointment.start_at).limit(8).all()
+    active_orders=WorkOrder.query.filter(WorkOrder.status!='Entregue').order_by(WorkOrder.entry_at.desc()).limit(8).all()
+    pending_quotes=Quote.query.filter_by(status='Pendente').order_by(Quote.created_at.desc()).limit(8).all()
+    return dict(clients=Client.query.count(),vehicles=Vehicle.query.count(),open_orders=open_orders,low_stock=low_stock,revenue=revenue,quotes_pending=quotes_pending,appointments=appointments,active_orders=active_orders,pending_quotes=pending_quotes)
+
 @app.route('/')
 @login_required
 def dashboard():
-    today=date.today(); open_orders=WorkOrder.query.filter(WorkOrder.status!='Entregue').count(); low_stock=Part.query.filter(Part.quantity<=Part.minimum_stock,Part.active==True).count(); month_start=datetime(today.year,today.month,1); month_orders=WorkOrder.query.filter(WorkOrder.entry_at>=month_start).all(); revenue=sum(totals(o.items,o.discount,o.vat)[3] for o in month_orders); quotes_pending=Quote.query.filter_by(status='Pendente').count(); appointments=Appointment.query.filter(Appointment.start_at>=datetime.now()).order_by(Appointment.start_at).limit(8).all(); return render_template('dashboard.html',clients=Client.query.count(),vehicles=Vehicle.query.count(),open_orders=open_orders,low_stock=low_stock,revenue=revenue,quotes_pending=quotes_pending,appointments=appointments)
+    return render_template('welcome.html', **_dashboard_data())
+
+@app.route('/workboard')
+@login_required
+def workboard():
+    return render_template('workboard.html', **_dashboard_data())
 
 @app.route('/clients')
 def clients():
