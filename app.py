@@ -44,7 +44,8 @@ class Quote(db.Model):
 class QuoteItem(db.Model):
     id=db.Column(db.Integer,primary_key=True); quote_id=db.Column(db.Integer,db.ForeignKey('quote.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
 class Invoice(db.Model):
-    id=db.Column(db.Integer,primary_key=True); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(30),default='Emitida'); payment_status=db.Column(db.String(30),default='Por pagar'); due_date=db.Column(db.Date); created_at=db.Column(db.DateTime,default=datetime.utcnow); client_name=db.Column(db.String(150)); nif=db.Column(db.String(30)); phone=db.Column(db.String(40)); address=db.Column(db.String(250)); vehicle_info=db.Column(db.String(160)); notes=db.Column(db.Text); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
+    id=db.Column(db.Integer,primary_key=True); client_id=db.Column(db.Integer,db.ForeignKey('client.id'),nullable=True); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(30),default='Emitida'); payment_status=db.Column(db.String(30),default='Por pagar'); due_date=db.Column(db.Date); created_at=db.Column(db.DateTime,default=datetime.utcnow); client_name=db.Column(db.String(150)); nif=db.Column(db.String(30)); phone=db.Column(db.String(40)); address=db.Column(db.String(250)); vehicle_info=db.Column(db.String(160)); notes=db.Column(db.Text); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
+    client=db.relationship('Client',backref='invoices')
     items=db.relationship('InvoiceItem',backref='invoice',cascade='all, delete-orphan')
 class InvoiceItem(db.Model):
     id=db.Column(db.Integer,primary_key=True); invoice_id=db.Column(db.Integer,db.ForeignKey('invoice.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
@@ -330,8 +331,20 @@ def invoices():
 @app.route('/invoices/new',methods=['GET','POST'])
 def new_invoice():
     if request.method=='POST':
-        inv=Invoice(number=next_number('FT',Invoice),client_name=request.form.get('client_name'),nif=request.form.get('nif'),phone=request.form.get('phone'),address=request.form.get('address'),vehicle_info=request.form.get('vehicle_info'),notes=request.form.get('notes'),vat=float(request.form.get('vat') or 23),discount=float(request.form.get('discount') or 0),due_date=date.fromisoformat(request.form['due_date']) if request.form.get('due_date') else None); db.session.add(inv); db.session.flush(); add_posted_items(inv,'item',InvoiceItem); db.session.commit(); flash(f'Documento {inv.number} criado.'); return redirect(url_for('invoice_detail',id=inv.id))
-    return render_template('invoice_form.html')
+        client_id=request.form.get('client_id')
+        client=Client.query.get(int(client_id)) if client_id else None
+        client_name=(request.form.get('client_name') or '').strip()
+        # A tabela invoice existente exige client_id. Se o utilizador escrever um cliente
+        # sem selecionar um existente, criamos automaticamente a ficha de cliente.
+        if not client:
+            if not client_name:
+                flash('Indique um cliente para criar a fatura.','danger')
+                return render_template('invoice_form.html',clients=Client.query.order_by(Client.name).all())
+            client=Client(name=client_name,nif=request.form.get('nif'),phone=request.form.get('phone'),address=request.form.get('address'))
+            db.session.add(client); db.session.flush()
+        inv=Invoice(client_id=client.id,number=next_number('FT',Invoice),client_name=client.name,nif=request.form.get('nif') or client.nif,phone=request.form.get('phone') or client.phone,address=request.form.get('address') or client.address,vehicle_info=request.form.get('vehicle_info'),notes=request.form.get('notes'),vat=float(request.form.get('vat') or 23),discount=float(request.form.get('discount') or 0),due_date=date.fromisoformat(request.form['due_date']) if request.form.get('due_date') else None)
+        db.session.add(inv); db.session.flush(); add_posted_items(inv,'item',InvoiceItem); db.session.commit(); flash(f'Documento {inv.number} criado.'); return redirect(url_for('invoice_detail',id=inv.id))
+    return render_template('invoice_form.html',clients=Client.query.order_by(Client.name).all())
 @app.route('/invoices/<id>')
 def invoice_detail(id):
     inv=Invoice.query.get_or_404(id); refresh_invoice_status(inv); db.session.commit(); return render_template('invoice_detail.html',inv=inv,totals=totals(inv.items,inv.discount,inv.vat),received=invoice_received(inv),credits=invoice_credits(inv),balance=invoice_balance(inv))
@@ -339,10 +352,19 @@ def invoice_detail(id):
 def invoice_edit(id):
     inv=Invoice.query.get_or_404(id)
     if request.method=='POST':
-        inv.client_name=request.form.get('client_name'); inv.nif=request.form.get('nif'); inv.phone=request.form.get('phone'); inv.address=request.form.get('address'); inv.vehicle_info=request.form.get('vehicle_info'); inv.notes=request.form.get('notes'); inv.vat=float(request.form.get('vat') or 23); inv.discount=float(request.form.get('discount') or 0); inv.due_date=date.fromisoformat(request.form['due_date']) if request.form.get('due_date') else None
+        client_id=request.form.get('client_id')
+        if client_id:
+            client=Client.query.get(int(client_id))
+            if client: inv.client_id=client.id
+        if not inv.client_id:
+            client=Client(name=(request.form.get('client_name') or '').strip())
+            if not client.name:
+                flash('Indique um cliente para a fatura.','danger'); return render_template('invoice_form.html',inv=inv,edit=True,clients=Client.query.order_by(Client.name).all())
+            client.nif=request.form.get('nif'); client.phone=request.form.get('phone'); client.address=request.form.get('address'); db.session.add(client); db.session.flush(); inv.client_id=client.id
+        inv.client_name=request.form.get('client_name') or inv.client.name; inv.nif=request.form.get('nif') or inv.client.nif; inv.phone=request.form.get('phone') or inv.client.phone; inv.address=request.form.get('address') or inv.client.address; inv.vehicle_info=request.form.get('vehicle_info'); inv.notes=request.form.get('notes'); inv.vat=float(request.form.get('vat') or 23); inv.discount=float(request.form.get('discount') or 0); inv.due_date=date.fromisoformat(request.form['due_date']) if request.form.get('due_date') else None
         for i in list(inv.items): db.session.delete(i)
         db.session.flush(); add_posted_items(inv,'item',InvoiceItem); db.session.commit(); flash('Documento atualizado.'); return redirect(url_for('invoice_detail',id=id))
-    return render_template('invoice_form.html',inv=inv,edit=True)
+    return render_template('invoice_form.html',inv=inv,edit=True,clients=Client.query.order_by(Client.name).all())
 @app.route('/receipts/new',methods=['GET','POST'])
 def new_receipt():
     invs=Invoice.query.order_by(Invoice.created_at.desc()).all()
