@@ -32,7 +32,7 @@ class Part(db.Model):
 class Service(db.Model):
     id=db.Column(db.Integer,primary_key=True); code=db.Column(db.String(60),unique=True,nullable=False); name=db.Column(db.String(160),nullable=False); description=db.Column(db.String(250)); sale_price=db.Column(db.Float,default=0); cost_price=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT); active=db.Column(db.Boolean,default=True)
 class WorkOrder(db.Model):
-    id=db.Column(db.Integer,primary_key=True); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(40),default='Aberta'); complaint=db.Column(db.Text); diagnosis=db.Column(db.Text); work_done=db.Column(db.Text); mechanic=db.Column(db.String(120)); entry_at=db.Column(db.DateTime,default=datetime.utcnow); exit_at=db.Column(db.DateTime); km=db.Column(db.Integer,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT); vehicle_id=db.Column(db.Integer,db.ForeignKey('vehicle.id'),nullable=False); invoice_id=db.Column(db.Integer,db.ForeignKey('invoice.id'),nullable=True); stock_applied=db.Column(db.Boolean,default=False)
+    id=db.Column(db.Integer,primary_key=True); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(40),default='Aberta'); complaint=db.Column(db.Text); diagnosis=db.Column(db.Text); work_done=db.Column(db.Text); mechanic=db.Column(db.String(120)); entry_at=db.Column(db.DateTime,default=datetime.utcnow); exit_at=db.Column(db.DateTime); km=db.Column(db.Integer,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT); vehicle_id=db.Column(db.Integer,db.ForeignKey('vehicle.id'),nullable=False); stock_applied=db.Column(db.Boolean,default=False)
     items=db.relationship('WorkItem',backref='order',cascade='all, delete-orphan')
 class WorkItem(db.Model):
     id=db.Column(db.Integer,primary_key=True); order_id=db.Column(db.Integer,db.ForeignKey('work_order.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
@@ -202,21 +202,6 @@ def order_item_delete(id,item_id):
     i=WorkItem.query.filter_by(id=item_id,order_id=id).first_or_404(); db.session.delete(i); db.session.commit(); return redirect(url_for('order_detail',id=id))
 @app.route('/orders/<int:id>/print')
 def order_print(id): return render_template('order_print.html',o=WorkOrder.query.get_or_404(id),totals=totals(WorkOrder.query.get_or_404(id).items,WorkOrder.query.get_or_404(id).discount,WorkOrder.query.get_or_404(id).vat))
-@app.route('/orders/<int:id>/invoice', methods=['POST'])
-def order_create_invoice(id):
-    o=WorkOrder.query.get_or_404(id)
-    if o.invoice_id:
-        return redirect(url_for('invoice_detail',id=o.invoice_id))
-    client=o.vehicle.client
-    inv=Invoice(number=next_number('FT',Invoice),status='Emitida',payment_status='Por pagar',client_name=client.name,nif=client.nif,phone=client.phone,address=client.address,vehicle_info=f'{o.vehicle.plate} · {o.vehicle.brand or ""} {o.vehicle.model or ""}'.strip(' ·'),notes=f'Criada a partir da ordem de reparação {o.number}',discount=o.discount or 0,vat=o.vat or VAT_DEFAULT)
-    db.session.add(inv); db.session.flush()
-    for i in o.items:
-        inv.items.append(InvoiceItem(item_type=i.item_type,description=i.description,reference=i.reference,quantity=i.quantity,unit_price=i.unit_price,discount=i.discount,vat=i.vat))
-    o.invoice_id=inv.id
-    db.session.commit()
-    flash(f'Fatura {inv.number} criada a partir da ordem {o.number}.')
-    return redirect(url_for('invoice_detail',id=inv.id))
-
 
 @app.route('/quotes')
 def quotes():
@@ -341,28 +326,11 @@ def invoices():
     invs=Invoice.query.order_by(Invoice.created_at.desc()).all()
     for i in invs: refresh_invoice_status(i)
     db.session.commit()
-    status=request.args.get('status','')
-    if status: invs=[i for i in invs if i.payment_status==status]
-    return render_template('invoices.html',invoices=invs,status=status)
+    return render_template('invoices.html',invoices=invs)
 @app.route('/invoices/new',methods=['GET','POST'])
 def new_invoice():
     if request.method=='POST':
-        inv=Invoice(number=next_number('FT',Invoice),client_name=request.form.get('client_name'),nif=request.form.get('nif'),phone=request.form.get('phone'),address=request.form.get('address'),vehicle_info=request.form.get('vehicle_info'),notes=request.form.get('notes'),vat=float(request.form.get('vat') or 23),discount=float(request.form.get('discount') or 0),due_date=date.fromisoformat(request.form['due_date']) if request.form.get('due_date') else None)
-        db.session.add(inv)
-        db.session.flush()
-        add_posted_items(inv,'item',InvoiceItem)
-        db.session.flush()
-        chosen=request.form.get('payment_status','Por pagar')
-        amount=float(request.form.get('initial_payment') or 0)
-        total=invoice_total(inv)
-        if chosen=='Pago':
-            amount=total
-        elif chosen=='Por pagar':
-            amount=0
-        elif chosen=='Parcial':
-            amount=max(0,min(amount,total))
-        if amount>0: db.session.add(Receipt(number=next_number('RC',Receipt),invoice_id=inv.id,client_name=inv.client_name,amount=amount,payment_method=request.form.get('payment_method') or 'Transferência',notes='Pagamento registado na criação da fatura'))
-        refresh_invoice_status(inv); db.session.commit(); flash(f'Documento {inv.number} criado.'); return redirect(url_for('invoice_detail',id=inv.id))
+        inv=Invoice(number=next_number('FT',Invoice),client_name=request.form.get('client_name'),nif=request.form.get('nif'),phone=request.form.get('phone'),address=request.form.get('address'),vehicle_info=request.form.get('vehicle_info'),notes=request.form.get('notes'),vat=float(request.form.get('vat') or 23),discount=float(request.form.get('discount') or 0),due_date=date.fromisoformat(request.form['due_date']) if request.form.get('due_date') else None); db.session.add(inv); db.session.flush(); add_posted_items(inv,'item',InvoiceItem); db.session.commit(); flash(f'Documento {inv.number} criado.'); return redirect(url_for('invoice_detail',id=inv.id))
     return render_template('invoice_form.html')
 @app.route('/invoices/<id>')
 def invoice_detail(id):
