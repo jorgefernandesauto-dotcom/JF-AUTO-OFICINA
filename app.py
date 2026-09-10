@@ -36,6 +36,15 @@ class WorkOrder(db.Model):
     items=db.relationship('WorkItem',backref='order',cascade='all, delete-orphan')
 class WorkItem(db.Model):
     id=db.Column(db.Integer,primary_key=True); order_id=db.Column(db.Integer,db.ForeignKey('work_order.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
+class WorkPhoto(db.Model):
+    id=db.Column(db.Integer,primary_key=True); order_id=db.Column(db.Integer,db.ForeignKey('work_order.id'),nullable=False); title=db.Column(db.String(160)); url=db.Column(db.String(500),nullable=False); created_at=db.Column(db.DateTime,default=datetime.utcnow)
+    order=db.relationship('WorkOrder',backref=db.backref('photos',cascade='all, delete-orphan'))
+class SupplierOrder(db.Model):
+    id=db.Column(db.Integer,primary_key=True); number=db.Column(db.String(30),unique=True,nullable=False); supplier=db.Column(db.String(150),nullable=False); status=db.Column(db.String(40),default='Encomendada'); created_at=db.Column(db.DateTime,default=datetime.utcnow); expected_at=db.Column(db.Date); notes=db.Column(db.Text)
+    items=db.relationship('SupplierOrderItem',backref='supplier_order',cascade='all, delete-orphan')
+class SupplierOrderItem(db.Model):
+    id=db.Column(db.Integer,primary_key=True); supplier_order_id=db.Column(db.Integer,db.ForeignKey('supplier_order.id'),nullable=False); part_id=db.Column(db.Integer,db.ForeignKey('part.id')); description=db.Column(db.String(160),nullable=False); quantity=db.Column(db.Float,default=1); unit_cost=db.Column(db.Float,default=0); received=db.Column(db.Boolean,default=False)
+    part=db.relationship('Part')
 class Appointment(db.Model):
     id=db.Column(db.Integer,primary_key=True); start_at=db.Column(db.DateTime,nullable=False); end_at=db.Column(db.DateTime); client_name=db.Column(db.String(150),nullable=False); plate=db.Column(db.String(20)); service=db.Column(db.String(200)); mechanic=db.Column(db.String(120)); status=db.Column(db.String(40),default='Marcada')
 class Quote(db.Model):
@@ -190,6 +199,12 @@ def edit_client(id):
             setattr(c,x,request.form.get(x))
         db.session.commit(); flash('Cliente atualizado.'); return redirect(url_for('clients'))
     return render_template('client_form.html',c=c)
+
+@app.route('/vehicles/<int:id>/history')
+def vehicle_history(id):
+    v=Vehicle.query.get_or_404(id)
+    orders=WorkOrder.query.filter_by(vehicle_id=v.id).order_by(WorkOrder.entry_at.desc()).all()
+    return render_template('vehicle_history.html',v=v,orders=orders)
 
 @app.route('/vehicles')
 def vehicles():
@@ -484,6 +499,60 @@ def credit_notes(): return render_template('credit_notes.html',credits=CreditNot
 @app.route('/invoices/<id>/print')
 def invoice_print(id):
     inv=Invoice.query.get_or_404(id); return render_template('invoice_print.html',inv=inv,totals=totals(inv.items,inv.discount,inv.vat))
+
+@app.route('/orders/<int:id>/photos',methods=['POST'])
+def order_photo(id):
+    o=WorkOrder.query.get_or_404(id); url=(request.form.get('url') or '').strip(); title=(request.form.get('title') or '').strip()
+    if not url: flash('Indique o link da fotografia/diagnóstico.','danger'); return redirect(url_for('order_detail',id=id))
+    db.session.add(WorkPhoto(order_id=o.id,title=title,url=url)); db.session.commit(); flash('Fotografia/diagnóstico adicionado.'); return redirect(url_for('order_detail',id=id))
+
+@app.route('/orders/<int:id>/photos/<int:photo_id>/delete',methods=['POST'])
+def order_photo_delete(id,photo_id):
+    p=WorkPhoto.query.filter_by(id=photo_id,order_id=id).first_or_404(); db.session.delete(p); db.session.commit(); flash('Fotografia removida.'); return redirect(url_for('order_detail',id=id))
+
+@app.route('/profitability')
+def profitability():
+    orders=WorkOrder.query.order_by(WorkOrder.entry_at.desc()).limit(100).all(); rows=[]
+    for o in orders:
+        revenue=totals(o.items,o.discount,o.vat)[3]; cost=0
+        for i in o.items:
+            qty=i.quantity or 0
+            if (i.item_type or '').lower().startswith('pe'):
+                part=Part.query.filter(func.lower(Part.code)==(i.reference or '').lower()).first() if i.reference else None
+                cost += qty*(part.purchase_price if part else 0)
+            else:
+                service=Service.query.filter(func.lower(Service.code)==(i.reference or '').lower()).first() if i.reference else None
+                cost += qty*(service.cost_price if service else 0)
+        rows.append((o,revenue,cost,revenue-cost))
+    return render_template('profitability.html',rows=rows)
+
+@app.route('/suppliers/orders')
+def supplier_orders():
+    return render_template('supplier_orders.html',orders=SupplierOrder.query.order_by(SupplierOrder.created_at.desc()).all())
+
+@app.route('/suppliers/orders/new',methods=['GET','POST'])
+def new_supplier_order():
+    parts=Part.query.order_by(Part.description).all()
+    if request.method=='POST':
+        so=SupplierOrder(number=next_number('EN',SupplierOrder),supplier=(request.form.get('supplier') or '').strip(),status=request.form.get('status') or 'Encomendada',expected_at=date.fromisoformat(request.form['expected_at']) if request.form.get('expected_at') else None,notes=request.form.get('notes'))
+        if not so.supplier: flash('Indique o fornecedor.','danger'); return render_template('supplier_order_form.html',parts=parts)
+        db.session.add(so); db.session.flush()
+        descs=request.form.getlist('item_description[]'); qtys=request.form.getlist('item_quantity[]'); costs=request.form.getlist('item_cost[]'); refs=request.form.getlist('item_part_id[]')
+        for idx,desc in enumerate(descs):
+            if not (desc or '').strip(): continue
+            pid=int(refs[idx]) if idx < len(refs) and refs[idx] else None
+            db.session.add(SupplierOrderItem(supplier_order_id=so.id,part_id=pid,description=desc.strip(),quantity=float(qtys[idx] or 1),unit_cost=float(costs[idx] or 0)))
+        db.session.commit(); flash(f'Encomenda {so.number} criada.'); return redirect(url_for('supplier_orders'))
+    return render_template('supplier_order_form.html',parts=parts)
+
+@app.route('/suppliers/orders/<int:id>/receive',methods=['POST'])
+def receive_supplier_order(id):
+    so=SupplierOrder.query.get_or_404(id)
+    for i in so.items:
+        if not i.received:
+            if i.part: i.part.quantity=(i.part.quantity or 0)+int(i.quantity or 0)
+            i.received=True
+    so.status='Recebida'; db.session.commit(); flash(f'Encomenda {so.number} recebida e stock atualizado.'); return redirect(url_for('supplier_orders'))
 
 @app.route('/reports')
 def reports():
