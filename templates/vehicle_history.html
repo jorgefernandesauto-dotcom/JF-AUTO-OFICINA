@@ -1,1 +1,26 @@
-{% extends "base.html" %}{% block content %}<div class="d-flex justify-content-between align-items-center mb-4"><div><div class="page-title">Histórico da viatura</div><div class="muted">{{v.plate}} · {{v.brand}} {{v.model}} · {{v.client.name}}</div></div><a class="btn btn-dark" href="/orders/new?vehicle_id={{v.id}}">Nova reparação</a></div><div class="cardx p-4 mb-4"><div class="row g-3"><div class="col-md-3"><b>Matrícula</b><div>{{v.plate}}</div></div><div class="col-md-3"><b>VIN</b><div>{{v.vin or '-'}}</div></div><div class="col-md-3"><b>KM atual</b><div>{{v.km or 0}}</div></div><div class="col-md-3"><b>Cliente</b><div>{{v.client.name}}</div></div></div></div><div class="cardx"><table class="table mb-0"><tr><th>OR</th><th>Entrada</th><th>Saída</th><th>Estado</th><th>KM</th><th>Total</th></tr>{% for o in orders %}<tr><td><a href="/orders/{{o.id}}">{{o.number}}</a></td><td>{{o.entry_at.strftime('%d/%m/%Y %H:%M') if o.entry_at else '-'}}</td><td>{{o.exit_at.strftime('%d/%m/%Y %H:%M') if o.exit_at else '-'}}</td><td>{{o.status}}</td><td>{{o.km or 0}}</td><td>{{totals(o.items,o.discount,o.vat)[3]|eur}}</td></tr>{% else %}<tr><td colspan="6" class="empty">Sem intervenções registadas.</td></tr>{% endfor %}</table></div>{% endblock %}
+{% extends "base.html" %}{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div><div class="page-title">Ficha da viatura</div><div class="muted">Histórico completo · {{v.plate}} · {{v.brand or ''}} {{v.model or ''}} · {{v.client.name}}</div></div>
+  <div class="d-flex gap-2"><a class="btn btn-outline-dark" href="/vehicles/{{v.id}}/edit">Editar viatura</a><a class="btn btn-dark" href="/orders/new?vehicle_id={{v.id}}">+ Nova reparação</a></div>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="cardx p-3"><div class="muted small">Quilómetros atuais</div><div class="fs-4 fw-bold">{{v.km or 0}} km</div></div></div>
+  <div class="col-md-3"><div class="cardx p-3"><div class="muted small">Intervenções</div><div class="fs-4 fw-bold">{{orders|length}}</div></div></div>
+  <div class="col-md-3"><div class="cardx p-3"><div class="muted small">Total histórico</div><div class="fs-4 fw-bold">{{total_spent|eur}}</div></div></div>
+  <div class="col-md-3"><div class="cardx p-3"><div class="muted small">VIN</div><div class="fw-bold text-break">{{v.vin or '-'}}</div></div></div>
+</div>
+<div class="row g-4">
+ <div class="col-lg-8">
+  <div class="cardx p-4 mb-4"><h5>Histórico de reparações</h5>
+   <div class="table-responsive"><table class="table align-middle"><thead><tr><th>OR</th><th>Data</th><th>KM</th><th>Estado</th><th>Diagnóstico</th><th>Total</th><th></th></tr></thead><tbody>
+   {% for o in orders %}<tr><td><a href="/orders/{{o.id}}"><strong>{{o.number}}</strong></a></td><td>{{o.entry_at.strftime('%d/%m/%Y %H:%M') if o.entry_at else '-'}}</td><td>{{o.km or 0}}</td><td><span class="pill">{{o.status}}</span></td><td class="text-truncate" style="max-width:220px">{{o.diagnosis or o.work_done or '-'}}</td><td>{{totals(o.items,o.discount,o.vat)[3]|eur}}</td><td><a class="btn btn-sm btn-outline-dark" href="/orders/{{o.id}}">Abrir</a></td></tr>
+   {% else %}<tr><td colspan="7" class="empty">Ainda não existem intervenções.</td></tr>{% endfor %}
+   </tbody></table></div>
+  </div>
+  {% if last_order %}<div class="cardx p-4"><h5>Última intervenção</h5><div class="row g-3"><div class="col-md-4"><b>Diagnóstico</b><div class="mt-1">{{last_order.diagnosis or '-'}}</div></div><div class="col-md-4"><b>Trabalho realizado</b><div class="mt-1">{{last_order.work_done or '-'}}</div></div><div class="col-md-4"><b>Mecânico</b><div class="mt-1">{{last_order.mechanic or '-'}}</div></div></div><a class="btn btn-outline-dark mt-3" href="/orders/{{last_order.id}}">Abrir ordem {{last_order.number}}</a></div>{% endif %}
+ </div>
+ <div class="col-lg-4">
+  <div class="cardx p-4 mb-4"><h5>Dados da viatura</h5><div class="small muted">Matrícula</div><div class="fw-bold mb-2">{{v.plate}}</div><div class="small muted">Marca / modelo</div><div class="mb-2">{{v.brand or '-'}} {{v.model or ''}}</div><div class="small muted">Ano</div><div class="mb-2">{{v.year or '-'}}</div><div class="small muted">Combustível</div><div class="mb-2">{{v.fuel or '-'}}</div><div class="small muted">Cliente</div><div class="mb-2"><a href="/clients/{{v.client_id}}/edit">{{v.client.name}}</a></div><hr><div class="small muted">Notas permanentes</div><div class="mt-1">{{v.notes or 'Sem notas.'}}</div></div>
+  <div class="cardx p-4"><h5>Diagnóstico / fotografias</h5><p class="muted small mb-0">As fotografias e documentos ficam associados a cada OR. Abre a ordem para consultar ou adicionar.</p>{% if last_order %}<a class="btn btn-dark w-100 mt-3" href="/orders/{{last_order.id}}">Ver diagnóstico e fotografias</a>{% endif %}</div>
+ </div>
+</div>{% endblock %}

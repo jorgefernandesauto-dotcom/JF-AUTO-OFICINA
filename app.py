@@ -25,7 +25,7 @@ class Client(db.Model):
     id=db.Column(db.Integer,primary_key=True); name=db.Column(db.String(150),nullable=False); nif=db.Column(db.String(30)); phone=db.Column(db.String(40)); email=db.Column(db.String(120)); address=db.Column(db.String(250)); notes=db.Column(db.Text)
     vehicles=db.relationship('Vehicle',backref='client',cascade='all, delete-orphan')
 class Vehicle(db.Model):
-    id=db.Column(db.Integer,primary_key=True); plate=db.Column(db.String(20),nullable=False,index=True); brand=db.Column(db.String(80)); model=db.Column(db.String(80)); year=db.Column(db.Integer); vin=db.Column(db.String(80)); km=db.Column(db.Integer,default=0); fuel=db.Column(db.String(30)); client_id=db.Column(db.Integer,db.ForeignKey('client.id'),nullable=False)
+    id=db.Column(db.Integer,primary_key=True); plate=db.Column(db.String(20),nullable=False,index=True); brand=db.Column(db.String(80)); model=db.Column(db.String(80)); year=db.Column(db.Integer); vin=db.Column(db.String(80)); km=db.Column(db.Integer,default=0); fuel=db.Column(db.String(30)); notes=db.Column(db.Text); client_id=db.Column(db.Integer,db.ForeignKey('client.id'),nullable=False)
     work_orders=db.relationship('WorkOrder',backref='vehicle',cascade='all, delete-orphan')
 class Part(db.Model):
     id=db.Column(db.Integer,primary_key=True); code=db.Column(db.String(60),unique=True,nullable=False); description=db.Column(db.String(160),nullable=False); supplier=db.Column(db.String(120)); purchase_price=db.Column(db.Float,default=0); sale_price=db.Column(db.Float,default=0); quantity=db.Column(db.Integer,default=0); minimum_stock=db.Column(db.Integer,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT); active=db.Column(db.Boolean,default=True)
@@ -204,24 +204,27 @@ def edit_client(id):
 def vehicle_history(id):
     v=Vehicle.query.get_or_404(id)
     orders=WorkOrder.query.filter_by(vehicle_id=v.id).order_by(WorkOrder.entry_at.desc()).all()
-    return render_template('vehicle_history.html',v=v,orders=orders)
+    total_spent=sum(totals(o.items,o.discount,o.vat)[3] for o in orders)
+    last_order=orders[0] if orders else None
+    return render_template('vehicle_history.html',v=v,orders=orders,total_spent=total_spent,last_order=last_order)
+
 
 @app.route('/vehicles')
 def vehicles():
     q=request.args.get('q','').strip(); query=Vehicle.query
-    if q: query=query.filter(or_(Vehicle.plate.ilike(f'%{q}%'),Vehicle.brand.ilike(f'%{q}%'),Vehicle.model.ilike(f'%{q}%')))
+    if q: query=query.filter(or_(Vehicle.plate.ilike(f'%{q}%'),Vehicle.vin.ilike(f'%{q}%'),Vehicle.brand.ilike(f'%{q}%'),Vehicle.model.ilike(f'%{q}%')))
     return render_template('vehicles.html',vehicles=query.order_by(Vehicle.plate).all(),q=q)
 @app.route('/vehicles/new',methods=['GET','POST'])
 def new_vehicle():
     clients=Client.query.order_by(Client.name).all()
     if request.method=='POST':
-        v=Vehicle(plate=request.form['plate'].upper().strip(),brand=request.form.get('brand'),model=request.form.get('model'),year=int(request.form['year']) if request.form.get('year') else None,vin=request.form.get('vin'),km=int(request.form.get('km') or 0),fuel=request.form.get('fuel'),client_id=int(request.form['client_id'])); db.session.add(v); db.session.commit(); flash('Viatura criada.'); return redirect(url_for('vehicles'))
+        v=Vehicle(plate=request.form['plate'].upper().strip(),brand=request.form.get('brand'),model=request.form.get('model'),year=int(request.form['year']) if request.form.get('year') else None,vin=request.form.get('vin'),km=int(request.form.get('km') or 0),fuel=request.form.get('fuel'),notes=request.form.get('notes'),client_id=int(request.form['client_id'])); db.session.add(v); db.session.commit(); flash('Viatura criada.'); return redirect(url_for('vehicles'))
     return render_template('vehicle_form.html',clients=clients)
 @app.route('/vehicles/<int:id>/edit',methods=['GET','POST'])
 def edit_vehicle(id):
     v=Vehicle.query.get_or_404(id); clients=Client.query.order_by(Client.name).all()
     if request.method=='POST':
-        v.plate=request.form['plate'].upper().strip(); v.brand=request.form.get('brand'); v.model=request.form.get('model'); v.year=int(request.form['year']) if request.form.get('year') else None; v.vin=request.form.get('vin'); v.km=int(request.form.get('km') or 0); v.fuel=request.form.get('fuel'); v.client_id=int(request.form['client_id']); db.session.commit(); flash('Viatura atualizada.'); return redirect(url_for('vehicles'))
+        v.plate=request.form['plate'].upper().strip(); v.brand=request.form.get('brand'); v.model=request.form.get('model'); v.year=int(request.form['year']) if request.form.get('year') else None; v.vin=request.form.get('vin'); v.km=int(request.form.get('km') or 0); v.fuel=request.form.get('fuel'); v.notes=request.form.get('notes'); v.client_id=int(request.form['client_id']); db.session.commit(); flash('Viatura atualizada.'); return redirect(url_for('vehicles'))
     return render_template('vehicle_form.html',v=v,clients=clients)
 
 def next_number(prefix,model):
