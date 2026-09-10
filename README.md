@@ -30,3 +30,7 @@ O serviço continua a usar Docker. A variável `DATABASE_URL` deve continuar con
 
 ## V7 corrigida + quilometragem
 As faturas passaram a ter campo de quilómetros. O valor é guardado na fatura, aparece nos detalhes e é impresso no documento. Ao criar uma fatura diretamente de uma ordem de reparação, os km da ordem (ou da viatura) são copiados automaticamente.
+
+
+## JF Auto V8
+Interface reorganizada com inspiração no fluxo de software moderno para oficinas: visão geral, quadro Kanban da oficina, orçamento → ordem → stock → faturação, agenda e pesquisa. Mantém a identidade e o logo JF Auto.
