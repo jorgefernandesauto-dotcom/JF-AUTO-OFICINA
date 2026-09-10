@@ -421,7 +421,16 @@ def edit_service(id):
     return render_template('service_form.html',s=s,edit=True)
 
 @app.route('/agenda')
-def agenda(): return render_template('agenda.html',appointments=Appointment.query.order_by(Appointment.start_at).all())
+def agenda():
+    day=request.args.get('day','').strip(); mechanic=request.args.get('mechanic','').strip()
+    query=Appointment.query
+    if day:
+        try:
+            d=date.fromisoformat(day); query=query.filter(Appointment.start_at>=datetime.combine(d,datetime.min.time()), Appointment.start_at<datetime.combine(d,datetime.min.time()).replace(hour=23,minute=59,second=59))
+        except ValueError: day=''
+    if mechanic: query=query.filter(Appointment.mechanic.ilike(f'%{mechanic}%'))
+    appointments=query.order_by(Appointment.start_at).all()
+    return render_template('agenda.html',appointments=appointments,day=day,mechanic=mechanic)
 @app.route('/agenda/new',methods=['GET','POST'])
 def new_appointment():
     if request.method=='POST':
