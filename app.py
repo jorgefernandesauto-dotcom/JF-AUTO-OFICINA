@@ -3,15 +3,28 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date
 from sqlalchemy import or_, func, inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 from functools import wraps
-import os, shutil, traceback, uuid
+import os, shutil, traceback, uuid, requests
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'oficina-pro-chave-alterar')
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', '1' if os.getenv('RENDER') else '0') == '1'
+app.config['MAX_CONTENT_LENGTH'] = 12 * 1024 * 1024
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_FILE = os.path.join(BASE_DIR, 'oficina.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', f"sqlite:///{DB_FILE.replace(os.sep, '/')}")
+DATABASE_URL = os.getenv('DATABASE_URL', f"sqlite:///{DB_FILE.replace(os.sep, '/')}")
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True, 'pool_recycle': 280} if DATABASE_URL.startswith('postgresql') else {}
+SUPABASE_URL = os.getenv('SUPABASE_URL', '').rstrip('/')
+SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
+SUPABASE_STORAGE_BUCKET = os.getenv('SUPABASE_STORAGE_BUCKET', 'jf-auto-fotos')
 db = SQLAlchemy(app)
 VAT_DEFAULT = 23.0
 
@@ -539,11 +552,37 @@ def credit_notes(): return render_template('credit_notes.html',credits=CreditNot
 def invoice_print(id):
     inv=Invoice.query.get_or_404(id); return render_template('invoice_print.html',inv=inv,totals=totals(inv.items,inv.discount,inv.vat))
 
+def _supabase_storage_ready():
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and SUPABASE_STORAGE_BUCKET)
+
+def _upload_to_supabase(file_storage, order_id):
+    ext=os.path.splitext(file_storage.filename or '')[1].lower()
+    allowed={'.jpg','.jpeg','.png','.webp','.heic','.pdf'}
+    if ext not in allowed:
+        raise ValueError('Formato não suportado. Use JPG, PNG, WEBP, HEIC ou PDF.')
+    path=f"orders/{order_id}/{uuid.uuid4().hex}{ext}"
+    endpoint=f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_STORAGE_BUCKET}/{path}"
+    headers={'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}','apikey':SUPABASE_SERVICE_ROLE_KEY,'Content-Type':file_storage.mimetype or 'application/octet-stream','x-upsert':'false'}
+    r=requests.post(endpoint,headers=headers,data=file_storage.read(),timeout=30)
+    if r.status_code >= 300:
+        raise RuntimeError(f'Falha no armazenamento cloud ({r.status_code}).')
+    return f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{path}"
+
 @app.route('/orders/<int:id>/photos',methods=['POST'])
 def order_photo(id):
-    o=WorkOrder.query.get_or_404(id); url=(request.form.get('url') or '').strip(); title=(request.form.get('title') or '').strip()
-    if not url: flash('Indique o link da fotografia/diagnóstico.','danger'); return redirect(url_for('order_detail',id=id))
-    db.session.add(WorkPhoto(order_id=o.id,title=title,url=url)); db.session.commit(); flash('Fotografia/diagnóstico adicionado.'); return redirect(url_for('order_detail',id=id))
+    o=WorkOrder.query.get_or_404(id); url=(request.form.get('url') or '').strip(); title=(request.form.get('title') or '').strip(); file=request.files.get('photo')
+    try:
+        if file and file.filename:
+            if not _supabase_storage_ready():
+                flash('A cloud de fotografias ainda não está configurada no Render.','warning'); return redirect(url_for('order_detail',id=id))
+            url=_upload_to_supabase(file,o.id)
+        if not url:
+            flash('Escolha uma fotografia ou indique um link.','danger'); return redirect(url_for('order_detail',id=id))
+        db.session.add(WorkPhoto(order_id=o.id,title=title,url=url)); db.session.commit()
+        flash('Fotografia guardada na cloud.' if file and file.filename else 'Fotografia/diagnóstico adicionado.')
+    except Exception as e:
+        db.session.rollback(); flash(str(e),'danger')
+    return redirect(url_for('order_detail',id=id))
 
 @app.route('/orders/<int:id>/photos/<int:photo_id>/delete',methods=['POST'])
 def order_photo_delete(id,photo_id):

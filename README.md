@@ -18,3 +18,7 @@ Versão V9 da gestão de oficina JF Auto, com organização inspirada no fluxo m
 
 ## Nota sobre fotografias
 Na V9 as fotografias/documentos são guardados como links. Assim não dependem do disco local do Render. Para upload de ficheiros diretamente na aplicação, recomenda-se ligar armazenamento persistente/object storage numa versão futura.
+
+
+## Cloud / Render
+A aplicação usa PostgreSQL através de `DATABASE_URL` e pode guardar fotografias de OR no Supabase Storage. No Render, configurar `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e `SUPABASE_STORAGE_BUCKET` (ex.: `jf-auto-fotos`).
