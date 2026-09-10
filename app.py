@@ -555,8 +555,6 @@ def invoice_print(id):
 def _supabase_storage_ready():
     return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and SUPABASE_STORAGE_BUCKET)
 
-app.jinja_env.globals['photo_display_url'] = _photo_display_url
-
 def _photo_display_url(stored_url):
     if not stored_url or not stored_url.startswith('supabase://'):
         return stored_url
@@ -576,6 +574,8 @@ def _photo_display_url(stored_url):
     except Exception:
         pass
     return ''
+
+app.jinja_env.globals['photo_display_url'] = _photo_display_url
 
 def _upload_to_supabase(file_storage, order_id):
     ext=os.path.splitext(file_storage.filename or '')[1].lower()
