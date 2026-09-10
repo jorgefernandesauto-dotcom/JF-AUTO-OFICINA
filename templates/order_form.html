@@ -6,7 +6,51 @@
 <div class="table-responsive mt-3"><table class="table align-middle" id="items"><thead><tr><th style="width:22%">Catálogo</th><th>Tipo</th><th>Descrição</th><th>Referência</th><th>Qtd.</th><th>Preço unit.</th><th>IVA %</th><th></th></tr></thead><tbody></tbody></table></div></div>
 <div class="cardx p-4"><div class="row g-3"><div class="col-md-3"><label>Desconto (€)</label><input name="discount" value="0" step="0.01" type="number" class="form-control"></div><div class="col-md-3"><label>IVA padrão (%)</label><input name="vat" value="23" step="0.01" type="number" class="form-control"></div></div><button class="btn btn-dark mt-4">Criar ordem</button></div></form>
 <script>
-function rowHtml(){return `<tr><td><div class="input-group"><input class="form-control catalog-search" list="catalog-options" placeholder="Pesquisar peça ou serviço..." autocomplete="off"></div><small class="stock-note text-muted"></small></td><td><select name="item_type[]" class="form-select"><option>Peça</option><option>Mão de obra</option></select></td><td><input name="item_description[]" class="form-control" required></td><td><input name="item_reference[]" class="form-control"></td><td><input name="item_quantity[]" type="number" step="0.01" value="1" class="form-control"></td><td><input name="item_price[]" type="number" step="0.01" value="0" class="form-control"></td><td><input name="item_vat[]" type="number" step="0.01" value="23" class="form-control"></td><td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()">×</button></td></tr>`}
-function addRow(){let tbody=document.querySelector('#items tbody'); tbody.insertAdjacentHTML('beforeend',rowHtml()); bindCatalogRow(tbody.lastElementChild);}
+let catalogTimer=null;
+function rowHtml(){return `<tr><td style="position:relative"><div class="input-group"><input class="form-control catalog-search" list="catalog-options" placeholder="Pesquisar referência ou peça..." autocomplete="off"></div><div class="catalog-results position-absolute bg-white border rounded shadow-sm w-100" style="z-index:50;display:none;max-height:260px;overflow:auto"></div><small class="stock-note text-muted"></small></td><td><select name="item_type[]" class="form-select"><option>Peça</option><option>Mão de obra</option></select></td><td><input name="item_description[]" class="form-control" required></td><td><input name="item_reference[]" class="form-control"></td><td><input name="item_quantity[]" type="number" step="0.01" value="1" class="form-control"></td><td><input name="item_price[]" type="number" step="0.01" value="0" class="form-control"></td><td><input name="item_vat[]" type="number" step="0.01" value="23" class="form-control"></td><td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()">×</button></td></tr>`}
+function fillCatalogRow(row,x){
+  if(!x)return;
+  row.querySelector('[name="item_type[]"]').value=x.type;
+  row.querySelector('[name="item_description[]"]').value=x.description;
+  row.querySelector('[name="item_reference[]"]').value=x.code;
+  row.querySelector('[name="item_price[]"]').value=Number(x.price||0).toFixed(2);
+  row.querySelector('[name="item_vat[]"]').value=x.vat ?? 23;
+  let s=row.querySelector('.stock-note'); if(s) s.textContent=x.stock===null?'':'Stock disponível: '+x.stock;
+  let input=row.querySelector('.catalog-search'); if(input) input.value=x.code+' — '+x.description;
+  let box=row.querySelector('.catalog-results'); if(box) box.style.display='none';
+}
+async function lookupCatalog(q){
+  const r=await fetch('/api/catalog?q='+encodeURIComponent(q));
+  if(!r.ok)return [];
+  return await r.json();
+}
+function bindCatalogRow(row){
+  const input=row.querySelector('.catalog-search'), box=row.querySelector('.catalog-results');
+  if(!input)return;
+  const show=async()=>{
+    const q=input.value.trim();
+    if(!q){box.style.display='none';return;}
+    const data=await lookupCatalog(q);
+    box.innerHTML='';
+    if(!data.length){box.style.display='none';return;}
+    data.forEach(x=>{
+      const b=document.createElement('button'); b.type='button'; b.className='dropdown-item text-start px-3 py-2';
+      b.innerHTML='<strong>'+x.code+'</strong> · '+x.description+' <span class="text-muted float-end">'+Number(x.price||0).toFixed(2)+' €</span>';
+      b.addEventListener('mousedown',e=>{e.preventDefault();fillCatalogRow(row,x);});
+      box.appendChild(b);
+    });
+    box.style.display='block';
+  };
+  input.addEventListener('input',()=>{clearTimeout(catalogTimer);catalogTimer=setTimeout(show,180);});
+  input.addEventListener('change',async()=>{
+    const q=input.value.trim(); if(!q)return;
+    const data=await lookupCatalog(q);
+    const raw=q.toLowerCase();
+    const x=data.find(y=>y.code.toLowerCase()===raw) || data.find(y=>y.description.toLowerCase()===raw) || data[0];
+    if(x)fillCatalogRow(row,x);
+  });
+  input.addEventListener('blur',()=>setTimeout(()=>box.style.display='none',180));
+}
+function addRow(){let tbody=document.querySelector('#items tbody');tbody.insertAdjacentHTML('beforeend',rowHtml());bindCatalogRow(tbody.lastElementChild);}
 addRow();
 </script>{% endblock %}

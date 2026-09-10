@@ -241,7 +241,12 @@ def orders():
 def new_order():
     vehicles=Vehicle.query.order_by(Vehicle.plate).all(); parts=Part.query.filter_by(active=True).order_by(Part.description).all(); services=Service.query.filter_by(active=True).order_by(Service.name).all()
     if request.method=='POST':
-        n=next_number('OR',WorkOrder); o=WorkOrder(number=n,vehicle_id=int(request.form['vehicle_id']),complaint=request.form.get('complaint'),mechanic=request.form.get('mechanic'),km=int(request.form.get('km') or 0),vat=float(request.form.get('vat') or VAT_DEFAULT),discount=float(request.form.get('discount') or 0)); db.session.add(o); db.session.flush(); add_posted_items(o,'item',WorkItem); db.session.commit(); flash(f'Ordem {n} criada.'); return redirect(url_for('order_detail',id=o.id))
+        n=next_number('OR',WorkOrder); o=WorkOrder(number=n,vehicle_id=int(request.form['vehicle_id']),complaint=request.form.get('complaint'),mechanic=request.form.get('mechanic'),km=int(request.form.get('km') or 0),vat=float(request.form.get('vat') or VAT_DEFAULT),discount=float(request.form.get('discount') or 0)); db.session.add(o); db.session.flush(); add_posted_items(o,'item',WorkItem)
+        ok,msg=apply_stock(o.items)
+        if not ok:
+            db.session.rollback(); flash(msg,'danger'); return redirect(url_for('new_order'))
+        o.stock_applied=True
+        db.session.commit(); flash(f'Ordem {n} criada e stock atualizado.'); return redirect(url_for('order_detail',id=o.id))
     return render_template('order_form.html',vehicles=vehicles,parts=parts,services=services)
 @app.route('/orders/<int:id>')
 def order_detail(id):
@@ -288,15 +293,37 @@ def order_delete(id):
 
 @app.route('/orders/<int:id>/item',methods=['POST'])
 def order_item(id):
-    o=WorkOrder.query.get_or_404(id); o.items.append(WorkItem(item_type=request.form.get('item_type','Peça'),description=request.form['description'],reference=request.form.get('reference'),quantity=float(request.form.get('quantity') or 1),unit_price=float(request.form.get('unit_price') or 0),vat=float(request.form.get('vat') or o.vat))); db.session.commit(); return redirect(url_for('order_detail',id=id))
+    o=WorkOrder.query.get_or_404(id)
+    i=WorkItem(item_type=request.form.get('item_type','Peça'),description=request.form['description'],reference=request.form.get('reference'),quantity=float(request.form.get('quantity') or 1),unit_price=float(request.form.get('unit_price') or 0),vat=float(request.form.get('vat') or o.vat))
+    if o.stock_applied and (i.item_type or '').lower()=='peça':
+        p=find_part(i); qty=int(round(i.quantity or 0))
+        if p and qty>p.quantity: flash(f'Stock insuficiente para {p.description}: disponível {p.quantity}, necessário {qty}.','danger'); return redirect(url_for('order_detail',id=id))
+        if p: p.quantity-=qty
+    o.items.append(i); db.session.commit(); return redirect(url_for('order_detail',id=id))
 @app.route('/orders/<int:id>/item/<int:item_id>/edit',methods=['GET','POST'])
 def order_item_edit(id,item_id):
-    i=WorkItem.query.filter_by(id=item_id,order_id=id).first_or_404()
-    if request.method=='POST': i.item_type=request.form.get('item_type','Peça'); i.description=request.form['description']; i.reference=request.form.get('reference'); i.quantity=float(request.form.get('quantity') or 1); i.unit_price=float(request.form.get('unit_price') or 0); i.vat=float(request.form.get('vat') or 23); db.session.commit(); flash('Item da ordem atualizado.'); return redirect(url_for('order_detail',id=id))
+    i=WorkItem.query.filter_by(id=item_id,order_id=id).first_or_404(); o=i.order
+    if request.method=='POST':
+        old_type=i.item_type; old_qty=int(round(i.quantity or 0)); old_part=find_part(i) if (old_type or '').lower()=='peça' else None
+        new_type=request.form.get('item_type','Peça'); new_desc=request.form['description']; new_ref=request.form.get('reference'); new_qty=int(round(float(request.form.get('quantity') or 1)))
+        new_part=Part.query.filter_by(code=new_ref.strip()).first() if new_ref else None
+        if not new_part: new_part=Part.query.filter(func.lower(Part.description)==func.lower(new_desc.strip())).first()
+        if o.stock_applied:
+            if old_part: old_part.quantity=(old_part.quantity or 0)+old_qty
+            if (new_type or '').lower()=='peça' and new_part:
+                if new_qty>new_part.quantity:
+                    if old_part: old_part.quantity=(old_part.quantity or 0)-old_qty
+                    flash(f'Stock insuficiente para {new_part.description}: disponível {new_part.quantity}, necessário {new_qty}.','danger'); return redirect(url_for('order_item_edit',id=id,item_id=item_id))
+                new_part.quantity-=new_qty
+        i.item_type=new_type; i.description=new_desc; i.reference=new_ref; i.quantity=float(request.form.get('quantity') or 1); i.unit_price=float(request.form.get('unit_price') or 0); i.vat=float(request.form.get('vat') or 23); db.session.commit(); flash('Item da ordem atualizado e stock ajustado.'); return redirect(url_for('order_detail',id=id))
     return render_template('item_edit.html',i=i,title='Editar item da ordem',back=url_for('order_detail',id=id))
 @app.route('/orders/<int:id>/item/<int:item_id>/delete',methods=['POST'])
 def order_item_delete(id,item_id):
-    i=WorkItem.query.filter_by(id=item_id,order_id=id).first_or_404(); db.session.delete(i); db.session.commit(); return redirect(url_for('order_detail',id=id))
+    i=WorkItem.query.filter_by(id=item_id,order_id=id).first_or_404(); o=i.order
+    if o.stock_applied and (i.item_type or '').lower()=='peça':
+        p=find_part(i)
+        if p: p.quantity=(p.quantity or 0)+int(round(i.quantity or 0))
+    db.session.delete(i); db.session.commit(); return redirect(url_for('order_detail',id=id))
 @app.route('/orders/<int:id>/print')
 def order_print(id): return render_template('order_print.html',o=WorkOrder.query.get_or_404(id),totals=totals(WorkOrder.query.get_or_404(id).items,WorkOrder.query.get_or_404(id).discount,WorkOrder.query.get_or_404(id).vat))
 
