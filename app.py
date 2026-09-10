@@ -39,7 +39,7 @@ class WorkItem(db.Model):
 class Appointment(db.Model):
     id=db.Column(db.Integer,primary_key=True); start_at=db.Column(db.DateTime,nullable=False); end_at=db.Column(db.DateTime); client_name=db.Column(db.String(150),nullable=False); plate=db.Column(db.String(20)); service=db.Column(db.String(200)); mechanic=db.Column(db.String(120)); status=db.Column(db.String(40),default='Marcada')
 class Quote(db.Model):
-    id=db.Column(db.Integer,primary_key=True); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(30),default='Pendente'); created_at=db.Column(db.DateTime,default=datetime.utcnow); valid_until=db.Column(db.Date); notes=db.Column(db.Text); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT); vehicle_id=db.Column(db.Integer,db.ForeignKey('vehicle.id'),nullable=False); stock_applied=db.Column(db.Boolean,default=False)
+    id=db.Column(db.Integer,primary_key=True); number=db.Column(db.String(30),unique=True,nullable=False); status=db.Column(db.String(30),default='Pendente'); approval_token=db.Column(db.String(80),unique=True,index=True); created_at=db.Column(db.DateTime,default=datetime.utcnow); valid_until=db.Column(db.Date); notes=db.Column(db.Text); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT); vehicle_id=db.Column(db.Integer,db.ForeignKey('vehicle.id'),nullable=False); stock_applied=db.Column(db.Boolean,default=False)
     vehicle=db.relationship('Vehicle'); items=db.relationship('QuoteItem',backref='quote',cascade='all, delete-orphan')
 class QuoteItem(db.Model):
     id=db.Column(db.Integer,primary_key=True); quote_id=db.Column(db.Integer,db.ForeignKey('quote.id'),nullable=False); item_type=db.Column(db.String(20),default='Peça'); description=db.Column(db.String(250),nullable=False); reference=db.Column(db.String(80)); quantity=db.Column(db.Float,default=1); unit_price=db.Column(db.Float,default=0); discount=db.Column(db.Float,default=0); vat=db.Column(db.Float,default=VAT_DEFAULT)
@@ -121,6 +121,56 @@ def dashboard():
 @login_required
 def workboard():
     return render_template('workboard.html', **_dashboard_data())
+
+@app.route('/search')
+@login_required
+def global_search():
+    q=request.args.get('q','').strip()
+    results=[]
+    if q:
+        like=f'%{q}%'
+        for c in Client.query.filter(or_(Client.name.ilike(like),Client.phone.ilike(like),Client.nif.ilike(like))).limit(10).all(): results.append(('Cliente',c.name,c.phone or '',url_for('edit_client',id=c.id)))
+        for v in Vehicle.query.filter(or_(Vehicle.plate.ilike(like),Vehicle.brand.ilike(like),Vehicle.model.ilike(like))).limit(10).all(): results.append(('Viatura',f'{v.plate} · {(v.brand or "")} {(v.model or "")}',f'{v.km or 0} km',url_for('edit_vehicle',id=v.id)))
+        for o in WorkOrder.query.filter(WorkOrder.number.ilike(like)).limit(10).all(): results.append(('OR',o.number,o.status,url_for('order_detail',id=o.id)))
+        for qx in Quote.query.filter(Quote.number.ilike(like)).limit(10).all(): results.append(('Orçamento',qx.number,qx.status,url_for('quote_detail',id=qx.id)))
+        for inv in Invoice.query.filter(Invoice.number.ilike(like)).limit(10).all(): results.append(('Fatura',inv.number,inv.payment_status,url_for('invoice_detail',id=inv.id)))
+    return render_template('search.html',q=q,results=results)
+
+@app.route('/reception')
+@login_required
+def reception():
+    q=request.args.get('q','').strip(); vehicles=[]; clients=[]
+    if q:
+        like=f'%{q}%'; vehicles=Vehicle.query.filter(or_(Vehicle.plate.ilike(like),Vehicle.vin.ilike(like),Vehicle.brand.ilike(like),Vehicle.model.ilike(like))).limit(20).all(); clients=Client.query.filter(or_(Client.name.ilike(like),Client.phone.ilike(like),Client.nif.ilike(like))).limit(20).all()
+    return render_template('reception.html',q=q,vehicles=vehicles,clients=clients)
+
+@app.route('/quotes/<int:id>/approval')
+def quote_approval(id):
+    q=Quote.query.get_or_404(id)
+    if not q.approval_token:
+        q.approval_token=uuid.uuid4().hex; db.session.commit()
+    return render_template('quote_approval.html',q=q,totals=totals(q.items,q.discount,q.vat))
+
+@app.route('/quotes/approve/<token>',methods=['POST'])
+def quote_approve(token):
+    q=Quote.query.filter_by(approval_token=token).first_or_404(); action=request.form.get('action','approve')
+    if q.status=='Convertido': return redirect(url_for('quote_approval',id=q.id))
+    q.status='Aprovado' if action=='approve' else 'Recusado'; db.session.commit()
+    return redirect(url_for('quote_approval',id=q.id))
+
+@app.route('/api/orders/<int:id>/status',methods=['POST'])
+@login_required
+def api_order_status(id):
+    o=WorkOrder.query.get_or_404(id); status=request.json.get('status') if request.is_json else request.form.get('status')
+    allowed=['Agendado','Diagnóstico','Em reparação','A aguardar peça','Pronto','Entregue']
+    if status not in allowed: return jsonify({'ok':False,'error':'Estado inválido'}),400
+    o.status=status
+    if status=='Entregue' and not o.exit_at: o.exit_at=datetime.utcnow()
+    if status=='Entregue' and not o.stock_applied:
+        ok,msg=apply_stock(o.items)
+        if not ok: return jsonify({'ok':False,'error':msg}),400
+        o.stock_applied=True
+    db.session.commit(); return jsonify({'ok':True,'status':status})
 
 @app.route('/clients')
 def clients():
@@ -244,7 +294,7 @@ def quotes():
 def new_quote():
     vehicles=Vehicle.query.order_by(Vehicle.plate).all()
     if request.method=='POST':
-        q=Quote(number=next_number('OC',Quote),vehicle_id=int(request.form['vehicle_id']),valid_until=datetime.fromisoformat(request.form['valid_until']).date() if request.form.get('valid_until') else None,notes=request.form.get('notes'),vat=float(request.form.get('vat') or VAT_DEFAULT),discount=float(request.form.get('discount') or 0)); db.session.add(q); db.session.flush(); add_posted_items(q,'item',QuoteItem); db.session.commit(); flash(f'Orçamento {q.number} criado.'); return redirect(url_for('quote_detail',id=q.id))
+        q=Quote(number=next_number('OC',Quote),approval_token=uuid.uuid4().hex,vehicle_id=int(request.form['vehicle_id']),valid_until=datetime.fromisoformat(request.form['valid_until']).date() if request.form.get('valid_until') else None,notes=request.form.get('notes'),vat=float(request.form.get('vat') or VAT_DEFAULT),discount=float(request.form.get('discount') or 0)); db.session.add(q); db.session.flush(); add_posted_items(q,'item',QuoteItem); db.session.commit(); flash(f'Orçamento {q.number} criado.'); return redirect(url_for('quote_detail',id=q.id))
     return render_template('quote_form.html',vehicles=vehicles)
 @app.route('/quotes/<int:id>')
 def quote_detail(id):

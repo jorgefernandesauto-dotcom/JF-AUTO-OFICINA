@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block content %}
+<div class="page-title mb-1">Pesquisa</div><div class="muted mb-4">Clientes, viaturas, ordens, orçamentos e faturas.</div>
+<form class="cardx p-3 mb-4 d-flex gap-2" action="/search"><input class="form-control" name="q" value="{{q}}" autofocus placeholder="Matrícula, cliente, telefone, OR, orçamento ou fatura..."><button class="btn btn-primary"><i class="bi bi-search"></i> Pesquisar</button></form>
+<div class="cardx table-responsive"><table class="table mb-0"><thead><tr><th>TIPO</th><th>RESULTADO</th><th>DETALHE</th><th></th></tr></thead><tbody>{% for typ,name,detail,url in results %}<tr><td><span class="badge-soft" style="background:#f0edff;color:#5d42df">{{typ}}</span></td><td class="fw-semibold">{{name}}</td><td class="muted">{{detail}}</td><td><a class="btn btn-sm btn-outline-dark" href="{{url}}">Abrir</a></td></tr>{% else %}<tr><td colspan="4" class="empty">{% if q %}Sem resultados para “{{q}}”.{% else %}Escreve o que procuras acima.{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}
