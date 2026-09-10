@@ -19,3 +19,9 @@ A opção **Fatura simples** é um documento de gestão/impressão. Não signifi
 
 ## Render
 O serviço continua a usar Docker. A variável `DATABASE_URL` deve continuar configurada com a ligação PostgreSQL (por exemplo, o Session Pooler do Supabase).
+
+
+## Atualização V7
+- Permite apagar ordens de reparação.
+- Ao apagar uma ordem com stock já descontado, as peças são devolvidas ao stock.
+- Mantida a criação de fatura diretamente a partir de uma ordem de reparação.
