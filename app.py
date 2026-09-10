@@ -555,6 +555,28 @@ def invoice_print(id):
 def _supabase_storage_ready():
     return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and SUPABASE_STORAGE_BUCKET)
 
+app.jinja_env.globals['photo_display_url'] = _photo_display_url
+
+def _photo_display_url(stored_url):
+    if not stored_url or not stored_url.startswith('supabase://'):
+        return stored_url
+    try:
+        raw=stored_url[len('supabase://'):]
+        bucket, path=raw.split('/',1)
+        endpoint=f"{SUPABASE_URL}/storage/v1/object/sign/{bucket}/{path}"
+        headers={'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}','apikey':SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json'}
+        r=requests.post(endpoint,headers=headers,json={'expiresIn':3600},timeout=15)
+        if r.status_code < 300:
+            data=r.json()
+            signed=data.get('signedURL') or data.get('signedUrl')
+            if signed:
+                if signed.startswith('http'):
+                    return signed
+                return f"{SUPABASE_URL}/storage/v1{signed}"
+    except Exception:
+        pass
+    return ''
+
 def _upload_to_supabase(file_storage, order_id):
     ext=os.path.splitext(file_storage.filename or '')[1].lower()
     allowed={'.jpg','.jpeg','.png','.webp','.heic','.pdf'}
@@ -566,7 +588,7 @@ def _upload_to_supabase(file_storage, order_id):
     r=requests.post(endpoint,headers=headers,data=file_storage.read(),timeout=30)
     if r.status_code >= 300:
         raise RuntimeError(f'Falha no armazenamento cloud ({r.status_code}).')
-    return f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{path}"
+    return f"supabase://{SUPABASE_STORAGE_BUCKET}/{path}"
 
 @app.route('/orders/<int:id>/photos',methods=['POST'])
 def order_photo(id):
