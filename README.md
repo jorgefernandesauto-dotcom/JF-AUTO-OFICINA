@@ -21,7 +21,12 @@ A opção **Fatura simples** é um documento de gestão/impressão. Não signifi
 O serviço continua a usar Docker. A variável `DATABASE_URL` deve continuar configurada com a ligação PostgreSQL (por exemplo, o Session Pooler do Supabase).
 
 
-## Atualização V7
-- Permite apagar ordens de reparação.
-- Ao apagar uma ordem com stock já descontado, as peças são devolvidas ao stock.
-- Mantida a criação de fatura diretamente a partir de uma ordem de reparação.
+## V7 corrigida
+- Apagar ordens de reparação funciona e repõe no stock as peças já descontadas.
+- Criar fatura diretamente da ordem de reparação.
+- A fatura usa o logo JF Auto já existente em `static/img/jf-auto-logo.png`.
+- Migração automática cria a coluna de ligação da ordem à fatura em instalações existentes.
+
+
+## V7 corrigida + quilometragem
+As faturas passaram a ter campo de quilómetros. O valor é guardado na fatura, aparece nos detalhes e é impresso no documento. Ao criar uma fatura diretamente de uma ordem de reparação, os km da ordem (ou da viatura) são copiados automaticamente.
